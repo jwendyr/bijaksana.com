@@ -40,8 +40,10 @@ export function shell({ title, description, path, body, canonical, ogImage, json
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="alternate" hreflang="id" href="${can}">
 <link rel="alternate" hreflang="x-default" href="${can}">
-${jsonLd ? `<script type="application/ld+json">${JSON.stringify(jsonLd)}</script>` : ''}
-<style>@view-transition{navigation:auto}::view-transition-old(root){animation:fade-out .2s ease}::view-transition-new(root){animation:fade-in .2s ease}@keyframes fade-out{from{opacity:1}to{opacity:0}}@keyframes fade-in{from{opacity:0}to{opacity:1}}</style>
+${jsonLd ? (Array.isArray(jsonLd) ? jsonLd.map(j => `<script type="application/ld+json">${JSON.stringify(j)}</script>`).join('') : `<script type="application/ld+json">${JSON.stringify(jsonLd)}</script>`) : ''}
+<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-XXXXXXXXXXXXXXXX" crossorigin="anonymous"></script>
+<style>.ad-slot{min-height:90px;text-align:center;margin:16px 0;background:var(--bg2);border-radius:12px;overflow:hidden}
+@view-transition{navigation:auto}::view-transition-old(root){animation:fade-out .2s ease}::view-transition-new(root){animation:fade-in .2s ease}@keyframes fade-out{from{opacity:1}to{opacity:0}}@keyframes fade-in{from{opacity:0}to{opacity:1}}</style>
 <script type="speculationrules">{"prerender":[{"where":{"href_matches":"/*"},"eagerness":"moderate"}]}</script>
 <style>${CSS}</style>
 </head>
@@ -761,6 +763,8 @@ export function homePage(quotes, categories) {
   <div class="sub-msg" id="subMsg"></div>
 </div>
 
+<div class="ad-slot"><ins class="adsbygoogle" style="display:block" data-ad-format="auto" data-full-width-responsive="true"></ins><script>(adsbygoogle=window.adsbygoogle||[]).push({})</script></div>
+
 <footer class="footer">
   <p>${SITE_NAME} &mdash; Kata bijak & mutiara harian dari tokoh-tokoh terkenal.</p>
   <p style="margin-bottom:6px"><strong>Kata</strong>: <a href="/kategori">Kata Bijak</a> &middot; <a href="/arti-kata">Kamus KBBI</a> &middot; <a href="/tesaurus">Tesaurus</a> &middot; <a href="/slang">Bahasa Gaul</a> &middot; <a href="/idiom">Idiom</a></p>
@@ -842,14 +846,15 @@ ${pagination(paging, `/kategori/${cat.slug}`)}
     path: `/kategori/${cat.slug}`,
     body,
     activeTab: 'kategori',
-    jsonLd: {
-      "@context": "https://schema.org",
-      "@type": "CollectionPage",
-      name: `Kata Bijak ${cat.name}`,
-      url: `${SITE}/kategori/${cat.slug}`,
-      description: cat.description,
-      numberOfItems: cat.quote_count
-    }
+    jsonLd: [
+      {"@context":"https://schema.org","@type":"CollectionPage","name":`Kata Bijak ${cat.name}`,"url":`${SITE}/kategori/${cat.slug}`,"description":cat.description,"numberOfItems":cat.quote_count},
+      {"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[
+        {"@type":"ListItem","position":1,"name":"Beranda","item":`${SITE}/`},
+        {"@type":"ListItem","position":2,"name":"Kategori","item":`${SITE}/kategori`},
+        {"@type":"ListItem","position":3,"name":cat.name,"item":`${SITE}/kategori/${cat.slug}`}
+      ]},
+      ...(quotes.slice(0,5).map((q,i) => ({"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":`Apa kata bijak tentang ${cat.name.toLowerCase()}?`,"acceptedAnswer":{"@type":"Answer","text":`"${(q.text_id||q.text).substring(0,150)}" — ${q.author_name}`}}]})).slice(0,1))
+    ]
   });
 }
 
