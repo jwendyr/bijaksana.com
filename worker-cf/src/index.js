@@ -253,6 +253,16 @@ function isValidEmail(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
+// HTML escape for inline templates in index.js
+function escH(s) {
+  if (!s) return '';
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function escJ(s) {
+  if (!s) return '';
+  return s.replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'\\"').replace(/\n/g,'\\n');
+}
+
 // ── Main Worker ────────────────────────────────────────────────
 
 export default {
@@ -337,12 +347,20 @@ self.addEventListener('fetch',e=>{if(e.request.method!=='GET')return;
             return text(sitemapXml(kbbi, 'arti-kata', '0.4'), 'application/xml', 86400);
           }
           case '/sitemap-puisi.xml': {
-            const [puisi, stories] = await Promise.all([
+            const [puisi, stories, perib, idioms, pantuns, namas] = await Promise.all([
               db.prepare('SELECT slug FROM puisi').all().then(r => r.results),
               db.prepare('SELECT slug FROM stories').all().then(r => r.results),
+              db.prepare('SELECT slug FROM peribahasa').all().then(r => r.results),
+              db.prepare('SELECT slug FROM idiom').all().then(r => r.results),
+              db.prepare('SELECT slug FROM pantun').all().then(r => r.results),
+              db.prepare('SELECT slug FROM arti_nama').all().then(r => r.results),
             ]);
             let urls = puisi.map(p => `<url><loc>https://bijaksana.com/puisi/${p.slug}</loc><priority>0.5</priority></url>`).join('\n');
             urls += '\n' + stories.map(s => `<url><loc>https://bijaksana.com/kisah/${s.slug}</loc><priority>0.5</priority></url>`).join('\n');
+            urls += '\n' + perib.map(p => `<url><loc>https://bijaksana.com/peribahasa/${p.slug}</loc><priority>0.5</priority></url>`).join('\n');
+            urls += '\n' + idioms.map(i => `<url><loc>https://bijaksana.com/idiom/${i.slug}</loc><priority>0.4</priority></url>`).join('\n');
+            urls += '\n' + pantuns.map(p => `<url><loc>https://bijaksana.com/pantun/${p.slug}</loc><priority>0.4</priority></url>`).join('\n');
+            urls += '\n' + namas.map(n => `<url><loc>https://bijaksana.com/arti-nama/${n.slug}</loc><priority>0.4</priority></url>`).join('\n');
             return text(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls}\n</urlset>`, 'application/xml', 86400);
           }
           case '/sitemap-stories.xml': {
@@ -1047,6 +1065,79 @@ ${paginationHtml({ page, totalPages, total }, '/populer')}
         }
       }
 
+      // ── Individual Peribahasa page ──────────────────────
+      const peribahasaMatch = path.match(/^\/peribahasa\/([a-z0-9_-]+)\/?$/);
+      if (peribahasaMatch) {
+        const item = await db.prepare('SELECT * FROM peribahasa WHERE slug = ? LIMIT 1').bind(peribahasaMatch[1]).first();
+        if (!item) return html(notFoundPage(), 404);
+        const related = await db.prepare('SELECT id, text, slug, meaning FROM peribahasa WHERE id != ? ORDER BY RANDOM() LIMIT 5').bind(item.id).all().then(r => r.results);
+        return html(shell({
+          title: `Peribahasa: "${item.text.substring(0,50)}..."`,
+          description: `Arti peribahasa "${item.text.substring(0,80)}": ${(item.meaning||'').substring(0,100)}`,
+          path: `/peribahasa/${item.slug}`,
+          activeTab: '',
+          body: `<div class="breadcrumb"><a href="/">Beranda</a><span>/</span><a href="/peribahasa">Peribahasa</a><span>/</span><span>Detail</span></div>
+<article style="background:var(--bg2);border:1px solid var(--border);border-radius:16px;padding:24px 20px;margin-bottom:20px;position:relative;overflow:hidden">
+  <div style="position:absolute;top:0;left:0;right:0;height:2px;background:var(--grad)"></div>
+  <div style="font-family:var(--serif);font-size:20px;font-style:italic;line-height:1.7;color:var(--text);margin-bottom:12px">"${escH(item.text)}"</div>
+  ${item.meaning ? `<div style="padding:12px 16px;background:rgba(245,158,11,.06);border-radius:10px"><div style="font-size:11px;text-transform:uppercase;letter-spacing:1.5px;color:var(--accent);font-weight:600;margin-bottom:4px">Arti</div><div style="font-size:14px;color:var(--muted);line-height:1.7">${escH(item.meaning)}</div></div>` : ''}
+</article>
+<div class="qcard-actions" style="border-top:none;margin-bottom:20px">
+  <button class="qcard-btn" onclick="shareQuote('${escJ(item.text)}','Peribahasa Indonesia')">Salin</button>
+  <button class="qcard-btn" onclick="waShare('${escJ(item.text)}','Peribahasa Indonesia')">WA</button>
+  <a href="/gambar?q=${encodeURIComponent(item.text.substring(0,150))}&a=Peribahasa" class="qcard-btn" style="text-decoration:none">Gambar</a>
+  <button class="qcard-btn" onclick="playQuoteTTS(this,'${escJ(item.text)}','male')">&#x1F50A;</button>
+</div>
+${related.length > 0 ? `<h2 style="font-size:16px;font-weight:600;margin-bottom:10px;color:var(--muted)">Peribahasa Lainnya</h2>${related.map(r => `<a href="/peribahasa/${r.slug}" style="display:block;padding:12px 16px;background:var(--bg2);border:1px solid var(--border);border-radius:12px;margin-bottom:8px;text-decoration:none;color:var(--text)"><div style="font-style:italic;font-size:14px">"${escH(r.text)}"</div>${r.meaning ? `<div style="font-size:12px;color:var(--muted);margin-top:4px">${escH(r.meaning.substring(0,100))}</div>` : ''}</a>`).join('')}` : ''}
+<footer class="footer"><p>&copy; 2026 bijaksana.com &middot; <a href="/privasi">Privasi</a> &middot; <a href="/ketentuan">Ketentuan</a></p></footer>`,
+          jsonLd: { "@context":"https://schema.org", "@type":"Quotation", text: item.text, inLanguage: "id" }
+        }));
+      }
+
+      // ── Individual Idiom page ──────────────────────────
+      const idiomMatch = path.match(/^\/idiom\/([a-z0-9_-]+)\/?$/);
+      if (idiomMatch) {
+        const item = await db.prepare('SELECT * FROM idiom WHERE slug = ? LIMIT 1').bind(idiomMatch[1]).first();
+        if (!item) return html(notFoundPage(), 404);
+        const related = await db.prepare('SELECT id, text, slug FROM idiom WHERE id != ? ORDER BY RANDOM() LIMIT 5').bind(item.id).all().then(r => r.results);
+        return html(shell({
+          title: `Idiom: "${item.text.substring(0,50)}..."`,
+          description: `Arti idiom "${item.text.substring(0,80)}" dalam Bahasa Indonesia.`,
+          path: `/idiom/${item.slug}`,
+          activeTab: '',
+          body: `<div class="breadcrumb"><a href="/">Beranda</a><span>/</span><a href="/idiom">Idiom</a><span>/</span><span>Detail</span></div>
+<article style="background:var(--bg2);border:1px solid var(--border);border-radius:16px;padding:24px 20px;margin-bottom:20px"><div style="font-family:var(--serif);font-size:20px;font-style:italic;line-height:1.7;color:var(--text)">"${escH(item.text)}"</div>
+${item.source_word ? `<div style="margin-top:8px;font-size:13px;color:var(--dim)">Kata dasar: <a href="/arti-kata/${item.source_word}" style="color:var(--accent);text-decoration:none">${escH(item.source_word)}</a></div>` : ''}
+</article>
+${related.length > 0 ? `<h2 style="font-size:16px;font-weight:600;margin-bottom:10px;color:var(--muted)">Idiom Lainnya</h2>${related.map(r => `<a href="/idiom/${r.slug}" style="display:block;padding:12px;background:var(--bg2);border:1px solid var(--border);border-radius:12px;margin-bottom:8px;text-decoration:none;color:var(--text);font-style:italic;font-size:14px">"${escH(r.text)}"</a>`).join('')}` : ''}
+<footer class="footer"><p>&copy; 2026 bijaksana.com &middot; <a href="/privasi">Privasi</a> &middot; <a href="/ketentuan">Ketentuan</a></p></footer>`,
+        }));
+      }
+
+      // ── Individual Pantun page ──────────────────────────
+      const pantunMatch = path.match(/^\/pantun\/([a-z0-9_-]+)\/?$/);
+      if (pantunMatch) {
+        const item = await db.prepare('SELECT * FROM pantun WHERE slug = ? LIMIT 1').bind(pantunMatch[1]).first();
+        if (!item) return html(notFoundPage(), 404);
+        const related = await db.prepare('SELECT id, text, slug, category FROM pantun WHERE category = ? AND id != ? ORDER BY RANDOM() LIMIT 5').bind(item.category || '', item.id).all().then(r => r.results);
+        return html(shell({
+          title: `Pantun: "${item.text.substring(0,50).replace(/\\n/g,' ')}..."`,
+          description: `${item.category || 'Pantun Indonesia'}: ${item.text.substring(0,120).replace(/\\n/g,' ')}`,
+          path: `/pantun/${item.slug}`,
+          activeTab: '',
+          body: `<div class="breadcrumb"><a href="/">Beranda</a><span>/</span><a href="/pantun">Pantun</a><span>/</span><span>${escH(item.category || 'Detail')}</span></div>
+<article style="background:var(--bg2);border:1px solid var(--border);border-radius:16px;padding:24px 20px;margin-bottom:20px"><div style="font-family:var(--serif);font-size:18px;line-height:2;color:var(--text);white-space:pre-line">${escH(item.text)}</div>
+${item.category ? `<div style="margin-top:12px"><span style="padding:3px 12px;border-radius:20px;font-size:12px;background:rgba(245,158,11,.08);color:var(--accent)">${escH(item.category)}</span></div>` : ''}
+</article>
+<div class="qcard-actions" style="border-top:none;margin-bottom:20px">
+  <button class="qcard-btn" onclick="shareQuote('${escJ(item.text.replace(/\n/g,'\\n'))}','Pantun Indonesia')">Salin</button>
+  <button class="qcard-btn" onclick="waShare('${escJ(item.text.replace(/\n/g,'\\n'))}','Pantun')">WA</button>
+</div>
+${related.length > 0 ? `<h2 style="font-size:16px;font-weight:600;margin-bottom:10px;color:var(--muted)">Pantun Lainnya</h2>${related.map(r => `<a href="/pantun/${r.slug}" style="display:block;padding:14px;background:var(--bg2);border:1px solid var(--border);border-radius:12px;margin-bottom:8px;text-decoration:none;color:var(--text);font-size:14px;white-space:pre-line;line-height:1.8">${escH(r.text)}</a>`).join('')}` : ''}
+<footer class="footer"><p>&copy; 2026 bijaksana.com &middot; <a href="/privasi">Privasi</a> &middot; <a href="/ketentuan">Ketentuan</a></p></footer>`,
+        }));
+      }
+
       // ── Arti Nama ────────────────────────────────────────
       if (path === '/arti-nama' || path === '/arti-nama/') {
         const q = url.searchParams.get('q') || '';
@@ -1154,8 +1245,8 @@ ${paginationHtml({ page, totalPages, total }, '/populer')}
     // 06:00 UTC — Batch translate + enrich + crawl
     if (hour === 6) {
       try {
-        // Translate 50 English quotes
-        const enQuotes = await db.prepare("SELECT id, text, source FROM quotes WHERE source LIKE '%:en' AND (text_id IS NULL OR length(text_id)<10) LIMIT 50").all().then(r => r.results);
+        // Translate 20 English quotes per cron (30s CPU limit)
+        const enQuotes = await db.prepare("SELECT id, text, source FROM quotes WHERE source LIKE '%:en' AND (text_id IS NULL OR length(text_id)<10) ORDER BY likes DESC, views DESC LIMIT 20").all().then(r => r.results);
         for (const q of enQuotes) {
           try {
             const r = await env.AI.run('@cf/meta/llama-3.3-70b-instruct-fp8-fast', {
@@ -1170,8 +1261,8 @@ ${paginationHtml({ page, totalPages, total }, '/populer')}
         }
         console.log(`[CRON 06] Translated ${enQuotes.length} quotes`);
 
-        // Enrich 30 quotes with meaning
-        const noMeaning = await db.prepare("SELECT q.id, q.text, q.text_id, a.name AS author_name FROM quotes q JOIN authors a ON q.author_id=a.id WHERE q.meaning IS NULL OR length(q.meaning)<10 ORDER BY q.views DESC, q.likes DESC LIMIT 30").all().then(r => r.results);
+        // Enrich 10 quotes with meaning per cron (30s CPU limit)
+        const noMeaning = await db.prepare("SELECT q.id, q.text, q.text_id, a.name AS author_name FROM quotes q JOIN authors a ON q.author_id=a.id WHERE q.meaning IS NULL OR length(q.meaning)<10 ORDER BY q.views DESC, q.likes DESC LIMIT 10").all().then(r => r.results);
         for (const q of noMeaning) {
           try {
             const text = q.text_id || q.text;
