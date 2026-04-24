@@ -613,37 +613,50 @@ function toggleDark(){
 (function(){var t=localStorage.getItem('bijak-theme');if(t==='light')toggleDark()})();
 
 // Kindle-style word popup dictionary
-var dictPopup;
-function initDictPopup(){
-  dictPopup=document.createElement('div');
-  dictPopup.id='dictPopup';
-  dictPopup.style.cssText='display:none;position:fixed;z-index:300;background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:14px 16px;max-width:320px;width:90%;box-shadow:0 8px 30px rgba(0,0,0,.5);font-size:13px;line-height:1.6;color:var(--muted)';
-  dictPopup.innerHTML='<div id="dictWord" style="font-size:16px;font-weight:700;color:var(--text);margin-bottom:6px"></div><div id="dictDef"></div><a id="dictLink" href="#" style="display:block;margin-top:8px;color:var(--accent);font-size:12px;text-decoration:none">Lihat selengkapnya &rarr;</a><button onclick="dictPopup.style.display=\\'none\\'" style="position:absolute;top:8px;right:10px;background:none;border:none;color:var(--dim);font-size:18px;cursor:pointer">&times;</button>';
-  document.body.appendChild(dictPopup);
-}
-function lookupWord(word){
-  word=word.toLowerCase().replace(/[^a-z]/g,'');
-  if(word.length<3)return;
-  if(!dictPopup)initDictPopup();
-  document.getElementById('dictWord').textContent=word;
-  document.getElementById('dictDef').textContent='Memuat...';
-  document.getElementById('dictLink').href='/arti-kata/'+word;
-  dictPopup.style.display='block';
-  dictPopup.style.top='50%';dictPopup.style.left='50%';dictPopup.style.transform='translate(-50%,-50%)';
-  fetch('/api/kbbi?q='+word).then(r=>r.json()).then(d=>{
-    if(d.results&&d.results[0]){
-      document.getElementById('dictDef').innerHTML=d.results[0].definition;
-      document.getElementById('dictLink').href='/arti-kata/'+d.results[0].slug;
-    }else{
-      document.getElementById('dictDef').textContent='Kata tidak ditemukan di KBBI.';
-    }
-  }).catch(()=>{document.getElementById('dictDef').textContent='Gagal memuat.'});
-}
-// Double-click/long-press to lookup word
-document.addEventListener('dblclick',function(e){
-  var sel=window.getSelection().toString().trim();
-  if(sel&&sel.length>=3&&sel.length<=30&&!/\\s/.test(sel))lookupWord(sel);
-});
+(function(){
+  var popup=null;
+  function createPopup(){
+    popup=document.createElement('div');
+    popup.style.cssText='display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:300;background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:16px 18px;max-width:340px;width:90vw;box-shadow:0 12px 40px rgba(0,0,0,.6);font-size:13px;line-height:1.7;color:var(--muted)';
+    popup.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><div id="dw" style="font-size:17px;font-weight:700;color:var(--text)"></div><button id="dc" style="background:none;border:none;color:var(--dim);font-size:22px;cursor:pointer;padding:0 4px;line-height:1">&times;</button></div><div id="dd" style="max-height:200px;overflow-y:auto"></div><a id="dl" href="#" style="display:block;margin-top:10px;color:var(--accent);font-size:12px;text-decoration:none;font-weight:500">Lihat selengkapnya di KBBI \\u2192</a>';
+    document.body.appendChild(popup);
+    document.getElementById('dc').onclick=function(){popup.style.display='none'};
+    popup.addEventListener('click',function(e){e.stopPropagation()});
+  }
+  function lookup(word){
+    word=word.toLowerCase().replace(/[^a-z]/g,'').trim();
+    if(word.length<3||word.length>25)return;
+    if(!popup)createPopup();
+    document.getElementById('dw').textContent=word;
+    document.getElementById('dd').innerHTML='<span style="color:var(--dim)">Memuat...</span>';
+    document.getElementById('dl').href='/arti-kata/'+word;
+    popup.style.display='block';
+    fetch('/api/kbbi?q='+encodeURIComponent(word)).then(function(r){return r.json()}).then(function(d){
+      if(d.results&&d.results.length>0){
+        document.getElementById('dd').innerHTML=d.results[0].definition.substring(0,300);
+        document.getElementById('dl').href='/arti-kata/'+d.results[0].slug;
+      }else{
+        document.getElementById('dd').innerHTML='Kata <b>'+word+'</b> tidak ditemukan di KBBI.';
+      }
+    }).catch(function(){document.getElementById('dd').textContent='Gagal memuat.'});
+  }
+  // Listen for text selection (works on both mobile and desktop)
+  var selTimer;
+  document.addEventListener('selectionchange',function(){
+    clearTimeout(selTimer);
+    selTimer=setTimeout(function(){
+      var sel=window.getSelection().toString().trim();
+      if(sel&&sel.length>=3&&sel.length<=25&&sel.indexOf(' ')<0){
+        lookup(sel);
+      }
+    },600);
+  });
+  // Click outside closes popup
+  document.addEventListener('click',function(e){
+    if(popup&&popup.style.display==='block'&&!popup.contains(e.target)){popup.style.display='none'}
+  });
+  window.lookupWord=lookup;
+})();
 
 // Desktop inline search
 let deskTimer;
@@ -704,6 +717,24 @@ export function homePage(quotes, categories) {
   <div class="section-title"><span class="icon">&#x1F525;</span> Populer</div>
   <div class="quotes-grid">
   ${quotes.slice(0, 15).map((q, i) => quoteCard(q, i < 3)).join('')}
+  </div>
+</section>
+
+<section style="margin-top:32px">
+  <div class="section-title"><span class="icon">&#x1F4DA;</span> Jelajahi Lainnya</div>
+  <div class="cat-grid" style="grid-template-columns:repeat(3,1fr);gap:8px">
+    <a href="/arti-kata" class="cat-card"><div class="cat-card-icon">&#x1F4D6;</div><div class="cat-card-name">Kamus KBBI</div><div class="cat-card-count">114.000+ kata</div></a>
+    <a href="/tesaurus" class="cat-card"><div class="cat-card-icon">&#x1F504;</div><div class="cat-card-name">Tesaurus</div><div class="cat-card-count">20.000+ sinonim</div></a>
+    <a href="/puisi" class="cat-card"><div class="cat-card-icon">&#x1F4DC;</div><div class="cat-card-name">Puisi</div><div class="cat-card-count">5.500+ puisi</div></a>
+    <a href="/peribahasa" class="cat-card"><div class="cat-card-icon">&#x1F4D3;</div><div class="cat-card-name">Peribahasa</div><div class="cat-card-count">2.100+ peribahasa</div></a>
+    <a href="/pantun" class="cat-card"><div class="cat-card-icon">&#x1F3B6;</div><div class="cat-card-name">Pantun</div><div class="cat-card-count">430+ pantun</div></a>
+    <a href="/kisah" class="cat-card"><div class="cat-card-icon">&#x1F30D;</div><div class="cat-card-name">Kisah Bijaksana</div><div class="cat-card-count">450+ kisah</div></a>
+    <a href="/slang" class="cat-card"><div class="cat-card-icon">&#x1F60E;</div><div class="cat-card-name">Bahasa Gaul</div><div class="cat-card-count">5.000+ kata</div></a>
+    <a href="/idiom" class="cat-card"><div class="cat-card-icon">&#x1F4AC;</div><div class="cat-card-name">Idiom</div><div class="cat-card-count">2.100+ idiom</div></a>
+    <a href="/ucapan" class="cat-card"><div class="cat-card-icon">&#x1F389;</div><div class="cat-card-name">Ucapan</div><div class="cat-card-count">1.000+ ucapan</div></a>
+    <a href="/wordle" class="cat-card"><div class="cat-card-icon">&#x1F3AE;</div><div class="cat-card-name">Tebak Kata</div><div class="cat-card-count">Wordle Indonesia</div></a>
+    <a href="/gambar" class="cat-card"><div class="cat-card-icon">&#x1F5BC;</div><div class="cat-card-name">Buat Gambar</div><div class="cat-card-count">Quote wallpaper</div></a>
+    <a href="/lahir-hari-ini" class="cat-card"><div class="cat-card-icon">&#x1F382;</div><div class="cat-card-name">Lahir Hari Ini</div><div class="cat-card-count">Tokoh hari ini</div></a>
   </div>
 </section>
 
@@ -938,6 +969,20 @@ ${related.length > 0 ? `<section class="single-section">
   <h2>&#x1F517; Kata Bijak Terkait</h2>
   ${related.map(q => quoteCard(q, false)).join('')}
 </section>` : ''}
+
+<section class="single-section">
+  <h2>&#x1F50D; Jelajahi Lainnya</h2>
+  <div class="hscroll" style="gap:8px">
+    <a href="/kategori/${category.slug}" class="cat-chip">${category.icon || ''} ${category.name}</a>
+    <a href="/arti-kata" class="cat-chip">&#x1F4D6; Kamus KBBI</a>
+    <a href="/tesaurus" class="cat-chip">&#x1F504; Tesaurus</a>
+    <a href="/peribahasa" class="cat-chip">&#x1F4D3; Peribahasa</a>
+    <a href="/puisi" class="cat-chip">&#x1F4DC; Puisi</a>
+    <a href="/kisah" class="cat-chip">&#x1F30D; Kisah</a>
+    <a href="/gambar?q=${encodeURIComponent((quote.text_id || quote.text).substring(0,100))}&a=${encodeURIComponent(author.name)}" class="cat-chip">&#x1F5BC; Buat Gambar</a>
+    <a href="/wordle" class="cat-chip">&#x1F3AE; Tebak Kata</a>
+  </div>
+</section>
 
 <div class="sub-card">
   <h3>Suka kata bijak ini?</h3>
