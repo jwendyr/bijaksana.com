@@ -468,22 +468,37 @@ self.addEventListener('fetch',e=>{if(e.request.method!=='GET')return;
         } catch (e) { return json({ error: 'AI unavailable: ' + e.message }, 500); }
       }
 
-      // ── AI Wallpaper Generator ────────────────────────────
+      // ── AI Wallpaper Generator (themed to quote, cached) ──
       if (path === '/api/wallpaper' && method === 'POST') {
         try {
           const body = await request.json();
           const quote = (body.quote || '').substring(0, 200);
-          const author = (body.author || '').substring(0, 50);
-          const size = body.size || 'phone'; // phone, desktop, square
-          const style = body.style || 'dark-gradient';
+          const size = body.size || 'phone';
+          const style = body.style || 'auto';
+
+          // Auto-detect theme from quote keywords
+          let themeHint = 'abstract elegant';
+          if (quote) {
+            const q = quote.toLowerCase();
+            if (/cinta|love|kasih|heart|hati/.test(q)) themeHint = 'warm romantic sunset, soft pink golden tones';
+            else if (/laut|ocean|ombak|sea|water/.test(q)) themeHint = 'calm ocean waves, deep blue water, horizon';
+            else if (/alam|nature|pohon|bunga|tree|flower/.test(q)) themeHint = 'serene nature, green forest, morning dew';
+            else if (/bintang|star|langit|sky|moon|bulan/.test(q)) themeHint = 'starry night sky, milky way, cosmic purple';
+            else if (/berani|courage|kuat|strong|fight/.test(q)) themeHint = 'dramatic mountain peak, storm clouds, epic';
+            else if (/sabar|patience|tenang|peace|calm/.test(q)) themeHint = 'peaceful zen garden, still water, bamboo';
+            else if (/mimpi|dream|harap|hope/.test(q)) themeHint = 'ethereal clouds, golden light rays, dreamy';
+            else if (/sedih|sad|duka|grief|loss/.test(q)) themeHint = 'moody rain on window, grey blue tones, melancholy';
+            else if (/bahagia|happy|joy|senang/.test(q)) themeHint = 'vibrant sunrise, warm colors, joyful meadow';
+          }
 
           const prompts = {
-            'dark-gradient': 'beautiful dark moody gradient wallpaper, abstract soft bokeh lights, deep blue and purple tones, cinematic, 4k, no text no letters',
-            'nature': 'serene nature landscape, misty mountains at dawn, soft golden light, peaceful, 4k, no text no letters no people',
-            'ocean': 'calm ocean waves at sunset, deep blue water, golden sky reflection, peaceful mood, 4k, no text no letters',
-            'forest': 'mystical dark forest with soft light rays through trees, moody green tones, 4k, no text no letters no people',
-            'stars': 'beautiful starry night sky, milky way galaxy, dark purple blue, cosmic, 4k, no text no letters',
-            'minimal': 'minimalist abstract geometric wallpaper, dark background, subtle golden accent lines, elegant, 4k, no text',
+            'auto': `${themeHint}, wallpaper, cinematic, 4k quality, no text no letters no words`,
+            'dark-gradient': 'beautiful dark moody gradient wallpaper, abstract soft bokeh lights, deep blue purple, cinematic, 4k, no text no letters',
+            'nature': 'serene nature landscape, misty mountains dawn, soft golden light, peaceful, 4k, no text no letters no people',
+            'ocean': 'calm ocean sunset, deep blue water, golden sky reflection, 4k, no text no letters',
+            'forest': 'mystical dark forest, light rays through trees, moody green, 4k, no text no letters no people',
+            'stars': 'starry night sky, milky way galaxy, dark purple blue, cosmic, 4k, no text no letters',
+            'minimal': 'minimalist abstract geometric, dark background, subtle golden accent, elegant, 4k, no text',
           };
 
           const sizes = {
@@ -492,8 +507,17 @@ self.addEventListener('fetch',e=>{if(e.request.method!=='GET')return;
             'square': { w: 768, h: 768 },
           };
 
+          // Check KV cache (by quote hash)
+          const cacheKey = `wall:${(quote||style).substring(0,50).replace(/[^a-zA-Z0-9]/g,'_')}:${size}`;
+          const cached = await env.BIJAKSANA_KV.get(cacheKey, { type: 'arrayBuffer' });
+          if (cached && cached.byteLength > 1000) {
+            return new Response(cached, {
+              headers: { 'Content-Type': 'image/jpeg', 'Content-Disposition': `attachment; filename="bijaksana-wallpaper.jpg"`, 'Cache-Control': 'public, max-age=86400' },
+            });
+          }
+
           const dim = sizes[size] || sizes.phone;
-          const prompt = prompts[style] || prompts['dark-gradient'];
+          const prompt = prompts[style] || prompts['auto'];
 
           const imgResult = await env.AI.run('@cf/black-forest-labs/flux-1-schnell', {
             prompt,
@@ -503,30 +527,34 @@ self.addEventListener('fetch',e=>{if(e.request.method!=='GET')return;
           });
 
           const imageData = imgResult.image || imgResult;
+          let binary;
           if (typeof imageData === 'string') {
-            // Base64 — decode and return
-            const binary = Uint8Array.from(atob(imageData), c => c.charCodeAt(0));
-            return new Response(binary, {
-              headers: { 'Content-Type': 'image/jpeg', 'Content-Disposition': `attachment; filename="bijaksana-wallpaper.jpg"`, 'Cache-Control': 'public, max-age=86400' },
-            });
+            binary = Uint8Array.from(atob(imageData), c => c.charCodeAt(0));
+          } else {
+            binary = new Uint8Array(imageData);
           }
-          return new Response(imageData, {
-            headers: { 'Content-Type': 'image/png', 'Content-Disposition': `attachment; filename="bijaksana-wallpaper.png"` },
+
+          // Cache in KV (7 days)
+          try { await env.BIJAKSANA_KV.put(cacheKey, binary.buffer, { expirationTtl: 604800 }); } catch {}
+
+          return new Response(binary, {
+            headers: { 'Content-Type': 'image/jpeg', 'Content-Disposition': `attachment; filename="bijaksana-wallpaper.jpg"`, 'Cache-Control': 'public, max-age=86400' },
           });
         } catch (e) {
           return json({ error: 'Wallpaper generation failed: ' + e.message }, 500);
         }
       }
 
-      // ── TTS (Text-to-Speech, lazy cached in KV) ───────────
+      // ── TTS (Text-to-Speech, gender-matched, lazy cached) ─
       if (path === '/api/tts' && method === 'POST') {
         try {
           const body = await request.json();
           const text = (body.text || '').substring(0, 300);
+          const gender = body.gender || 'male';
           if (!text) return json({ error: 'text required' }, 400);
 
-          // Check KV cache first
-          const cacheKey = `tts:${text.substring(0, 100).replace(/[^a-zA-Z0-9]/g, '_')}`;
+          // Check KV cache first (include gender in key)
+          const cacheKey = `tts:${gender[0]}:${text.substring(0, 80).replace(/[^a-zA-Z0-9]/g, '_')}`;
           const cached = await env.BIJAKSANA_KV.get(cacheKey, { type: 'arrayBuffer' });
           if (cached && cached.byteLength > 100) {
             return new Response(cached, {

@@ -576,6 +576,16 @@ function voteQuote(id,val,btn){
     .then(r=>r.json()).then(d=>{if(d.success){btn.innerHTML='\\u{1F44D} '+d.likes;showToast('Terima kasih!')}});
 }
 
+// TTS — play quote audio with proper error handling
+function playQuoteTTS(btn,text,gender){
+  if(!text){showToast('Tidak ada teks');return}
+  var orig=btn.textContent;btn.disabled=true;btn.textContent='...';
+  fetch('/api/tts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:text.substring(0,200),gender:gender||'male'})})
+    .then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.blob()})
+    .then(function(b){if(b.size<100)throw new Error('empty');var a=new Audio(URL.createObjectURL(b));a.play();btn.disabled=false;btn.textContent=orig})
+    .catch(function(e){showToast('TTS: coba lagi nanti');btn.disabled=false;btn.textContent=orig});
+}
+
 // WhatsApp share
 function waShare(text,author){
   const t=encodeURIComponent('"'+text+'"\\n\\u2014 '+author+'\\n\\n\\ud83e\\udeb7 bijaksana.com');
@@ -940,7 +950,7 @@ export function singleQuotePage(quote, author, category, related) {
   <button class="qcard-btn" onclick="shareQuote('${escJs(quote.text_id || quote.text)}','${escJs(author.name)}')">&#x1F4CB; Salin</button>
   <button class="qcard-btn" onclick="waShare('${escJs(quote.text_id || quote.text)}','${escJs(author.name)}')">&#x1F4AC; WhatsApp</button>
   <a href="/gambar?q=${encodeURIComponent((quote.text_id || quote.text).substring(0,150))}&a=${encodeURIComponent(author.name)}" class="qcard-btn" style="text-decoration:none">&#x1F5BC; Gambar</a>
-  <button class="qcard-btn" onclick="fetch('/api/tts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:'${escJs((quote.text_id || quote.text).substring(0,200))}'})}).then(r=>r.blob()).then(b=>new Audio(URL.createObjectURL(b)).play()).catch(()=>showToast('TTS gagal'))">&#x1F50A;</button>
+  <button class="qcard-btn" onclick="playQuoteTTS(this,'${escJs((quote.text_id || quote.text).substring(0,200))}','${/kartini|helen|maya|najwa|oprah|mother|bunda|maria|anne|jane|virginia|emily|louisa|angelou|woolf|austen|keller|teresa|winfrey|curie|earhart|rosa|malala|aung|cleopatra|elizabeth|indira|hillary|margaret|bronte|dickinson|sappho|simone/i.test(author.name) ? 'female' : 'male'}')">&#x1F50A;</button>
 </div>
 
 ${quote.meaning ? `<section class="single-section">
@@ -1634,10 +1644,11 @@ async function genAIWallpaper(){
   // Pick style from background buttons
   var bgs=['dark-gradient','nature','ocean','forest','stars','minimal'];
   style=bgs[Math.floor(Math.random()*bgs.length)];
+  var quoteText=document.getElementById('imgQuote').value||'';
   btn.disabled=true;btn.textContent='Generating...';
-  status.textContent='AI sedang membuat wallpaper... (10-15 detik)';
+  status.textContent='AI sedang membuat wallpaper sesuai tema... (10-15 detik)';
   try{
-    var r=await fetch('/api/wallpaper',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({size:currentSize,style:style})});
+    var r=await fetch('/api/wallpaper',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({size:currentSize,style:'auto',quote:quoteText})});
     if(!r.ok){var e=await r.json();status.textContent=e.error||'Gagal';btn.disabled=false;btn.textContent='AI Wallpaper';return}
     var blob=await r.blob();
     var url=URL.createObjectURL(blob);
