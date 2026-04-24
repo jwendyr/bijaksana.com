@@ -1219,6 +1219,47 @@ ${related.length > 0 ? `<h2 style="font-size:16px;font-weight:600;margin-bottom:
         }));
       }
 
+      // ── Embed Widget (for other sites) ─────────────────
+      if (path === '/embed.js' && method === 'GET') {
+        return new Response(`(function(){var d=document,s=d.createElement('div');s.id='bijaksana-widget';s.innerHTML='<div style="background:#111113;border:1px solid #222;border-radius:12px;padding:16px;font-family:sans-serif;max-width:400px"><div style="font-style:italic;color:#fafafa;font-size:15px;line-height:1.6" id="bw-text">Memuat...</div><div style="color:#f59e0b;font-size:13px;margin-top:8px" id="bw-author"></div><div style="margin-top:8px;font-size:11px"><a href="https://bijaksana.com" style="color:#71717a;text-decoration:none">bijaksana.com</a></div></div>';var t=d.currentScript||d.querySelector('script[src*="bijaksana.com/embed"]');t.parentNode.insertBefore(s,t.nextSibling);fetch('https://bijaksana.com/api/quote/random').then(r=>r.json()).then(q=>{d.getElementById('bw-text').textContent='"'+(q.text||'')+'"';d.getElementById('bw-author').textContent='— '+(q.author||'')})})();`, {
+          headers: { 'Content-Type': 'application/javascript', 'Cache-Control': 'public, max-age=3600', 'Access-Control-Allow-Origin': '*' },
+        });
+      }
+
+      // ── API Documentation ──────────────────────────────
+      if (path === '/api' || path === '/api/') {
+        return html(shell({
+          title: 'API Dokumentasi',
+          path: '/api',
+          activeTab: '',
+          body: `<div class="breadcrumb"><a href="/">Beranda</a><span>/</span><span>API</span></div>
+<h1 style="font-size:22px;font-weight:700;margin-bottom:16px">Bijaksana API</h1>
+<p style="color:var(--muted);font-size:14px;margin-bottom:20px">API gratis untuk mengakses kata bijak, KBBI, dan tesaurus Indonesia.</p>
+<div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:12px">
+<h3 style="font-size:15px;margin-bottom:8px">GET /api/quote/random</h3>
+<p style="color:var(--muted);font-size:13px">Kata bijak acak. Response: <code>{text, author, category, slug}</code></p>
+</div>
+<div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:12px">
+<h3 style="font-size:15px;margin-bottom:8px">GET /api/search?q=cinta</h3>
+<p style="color:var(--muted);font-size:13px">Cari kata bijak. Response: <code>{results: [{text, author, slug}]}</code></p>
+</div>
+<div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:12px">
+<h3 style="font-size:15px;margin-bottom:8px">GET /api/kbbi?q=hati</h3>
+<p style="color:var(--muted);font-size:13px">Cari arti kata KBBI. Response: <code>{results: [{word, slug, definition}]}</code></p>
+</div>
+<div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:12px">
+<h3 style="font-size:15px;margin-bottom:8px">Embed Widget</h3>
+<p style="color:var(--muted);font-size:13px;margin-bottom:8px">Pasang kata bijak harian di website Anda:</p>
+<code style="display:block;background:var(--bg);padding:10px;border-radius:8px;font-size:12px;color:var(--accent);word-break:break-all">&lt;script src="https://bijaksana.com/embed.js"&gt;&lt;/script&gt;</code>
+</div>
+<div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:12px">
+<h3 style="font-size:15px;margin-bottom:8px">NPM Package</h3>
+<code style="display:block;background:var(--bg);padding:10px;border-radius:8px;font-size:12px;color:var(--accent)">npm install bijaksana-api</code>
+</div>
+<footer class="footer"><p>&copy; 2026 bijaksana.com &middot; <a href="/privasi">Privasi</a> &middot; <a href="/ketentuan">Ketentuan</a></p></footer>`
+        }));
+      }
+
       // Serve static assets
       if (env.ASSETS) {
         try {

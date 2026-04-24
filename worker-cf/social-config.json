@@ -1,0 +1,21 @@
+{
+  "profiles": {
+    "instagram": "@bijaksana.id",
+    "tiktok": "@bijaksana.id",
+    "twitter": "@bijaksana_id",
+    "facebook": "bijaksana.id",
+    "youtube": "@bijaksana"
+  },
+  "posting_schedule": {
+    "daily_quote": "07:00 WIB",
+    "quote_image": "12:00 WIB",
+    "story_reels": "18:00 WIB"
+  },
+  "content_types": [
+    "daily_quote_image",
+    "peribahasa_of_the_day",
+    "wordle_challenge",
+    "ai_generated_wisdom",
+    "author_spotlight"
+  ]
+}
