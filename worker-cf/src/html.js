@@ -73,9 +73,12 @@ ${jsonLd ? `<script type="application/ld+json">${JSON.stringify(jsonLd)}</script
         <a href="/peribahasa">Peribahasa</a>
         <a href="/kisah">Kisah Bijaksana</a>
         <a href="/ucapan">Ucapan</a>
+        <div class="desknav-group-label" style="margin-top:6px">AI</div>
+        <a href="/tanya">Tanya Bijaksana</a>
+        <a href="/ai">AI Generator</a>
+        <a href="/gambar">Buat Gambar Quote</a>
         <div class="desknav-group-label" style="margin-top:6px">Fitur</div>
         <a href="/wordle">Tebak Kata</a>
-        <a href="/gambar">Buat Gambar Quote</a>
         <a href="/hari-ini">Kata Bijak Hari Ini</a>
         <a href="/lahir-hari-ini">Lahir Hari Ini</a>
         <a href="/populer">Populer</a>
@@ -752,7 +755,8 @@ export function homePage(quotes, categories) {
   <p>${SITE_NAME} &mdash; Kata bijak & mutiara harian dari tokoh-tokoh terkenal.</p>
   <p style="margin-bottom:6px"><strong>Kata</strong>: <a href="/kategori">Kata Bijak</a> &middot; <a href="/arti-kata">Kamus KBBI</a> &middot; <a href="/tesaurus">Tesaurus</a> &middot; <a href="/slang">Bahasa Gaul</a> &middot; <a href="/idiom">Idiom</a></p>
   <p style="margin-bottom:6px"><strong>Sastra</strong>: <a href="/puisi">Puisi</a> &middot; <a href="/pantun">Pantun</a> &middot; <a href="/peribahasa">Peribahasa</a> &middot; <a href="/kisah">Kisah</a> &middot; <a href="/ucapan">Ucapan</a></p>
-  <p style="margin-bottom:6px"><strong>Lainnya</strong>: <a href="/tokoh">Tokoh</a> &middot; <a href="/hari-ini">Hari Ini</a> &middot; <a href="/lahir-hari-ini">Lahir Hari Ini</a> &middot; <a href="/gambar">Buat Gambar</a> &middot; <a href="/populer">Populer</a> &middot; <a href="/wordle">Tebak Kata</a> &middot; <a href="/acak">Acak</a></p>
+  <p style="margin-bottom:6px"><strong>AI</strong>: <a href="/tanya">Tanya Bijaksana</a> &middot; <a href="/ai">AI Generator</a> &middot; <a href="/gambar">Buat Gambar</a></p>
+  <p style="margin-bottom:6px"><strong>Lainnya</strong>: <a href="/tokoh">Tokoh</a> &middot; <a href="/hari-ini">Hari Ini</a> &middot; <a href="/lahir-hari-ini">Lahir Hari Ini</a> &middot; <a href="/populer">Populer</a> &middot; <a href="/wordle">Tebak Kata</a> &middot; <a href="/acak">Acak</a></p>
   <p>&copy; 2026 bijaksana.com &middot; <a href="/privasi">Privasi</a> &middot; <a href="/ketentuan">Ketentuan</a></p>
 </footer>`;
 
@@ -1622,6 +1626,173 @@ function shareImage(){
 
 <footer class="footer"><p>&copy; 2026 bijaksana.com &middot; <a href="/privasi">Privasi</a> &middot; <a href="/ketentuan">Ketentuan</a></p></footer>`;
   return shell({ title: 'Buat Gambar Kata Bijak', description: 'Buat gambar kata bijak untuk wallpaper, Instagram, atau WhatsApp. Gratis dan mudah.', path: '/gambar', body, activeTab: '' });
+}
+
+// ── AI Chat "Tanya Bijaksana" ─────────────────────────────────
+
+export function tanyaPage() {
+  const body = `
+<div class="breadcrumb"><a href="/">Beranda</a><span>/</span><span>Tanya Bijaksana</span></div>
+<h1 style="font-size:22px;font-weight:700;margin-bottom:6px">Tanya Bijaksana</h1>
+<p style="color:var(--muted);font-size:14px;margin-bottom:20px">Tanyakan apa saja tentang kehidupan, cinta, motivasi, atau kebijaksanaan. AI kami akan menjawab dengan bijak.</p>
+
+<div style="max-width:600px;margin:0 auto">
+  <div id="chatMessages" style="min-height:200px;margin-bottom:16px">
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:10px">
+      <div style="font-size:13px;color:var(--accent);font-weight:600;margin-bottom:6px">Bijaksana AI</div>
+      <div style="font-size:14px;color:var(--muted);line-height:1.7">Halo! Saya Bijaksana, asisten kebijaksanaan Anda. Silakan tanyakan apa saja — tentang kehidupan, cinta, kesulitan, atau apapun yang membuat Anda ingin merenung.</div>
+    </div>
+  </div>
+
+  <form onsubmit="askBijaksana(event)" style="display:flex;gap:8px">
+    <input type="text" id="askInput" placeholder="Tanyakan sesuatu..." style="flex:1;padding:14px 16px;background:var(--bg2);border:1px solid var(--border);border-radius:14px;color:var(--text);font-size:15px;font-family:var(--sans);outline:none" required>
+    <button type="submit" id="askBtn" style="padding:14px 24px;border:none;border-radius:14px;background:var(--grad);color:white;font-size:14px;font-weight:600;cursor:pointer;font-family:var(--sans);min-height:48px;white-space:nowrap">Tanya</button>
+  </form>
+
+  <div style="margin-top:16px">
+    <div style="font-size:12px;color:var(--dim);margin-bottom:8px">Coba tanyakan:</div>
+    <div class="hscroll" style="gap:6px">
+      ${['Bagaimana cara menghadapi kegagalan?','Apa arti cinta sejati?','Bagaimana agar hidup lebih bermakna?','Mengapa kesabaran itu penting?','Bagaimana mengatasi rasa takut?'].map(q =>
+        `<button onclick="document.getElementById('askInput').value='${q}';askBijaksana(new Event('submit'))" class="cat-chip" style="font-size:12px;cursor:pointer;border:none">${q}</button>`
+      ).join('')}
+    </div>
+  </div>
+</div>
+
+<script>
+async function askBijaksana(e){
+  e.preventDefault();
+  var inp=document.getElementById('askInput'),btn=document.getElementById('askBtn'),msgs=document.getElementById('chatMessages');
+  var q=inp.value.trim();if(!q)return;
+  // Add user message
+  msgs.innerHTML+='<div style="background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.2);border-radius:14px;padding:14px 16px;margin-bottom:10px;text-align:right"><div style="font-size:13px;color:var(--accent);font-weight:600;margin-bottom:4px">Anda</div><div style="font-size:14px;color:var(--text);line-height:1.6">'+esc(q)+'</div></div>';
+  inp.value='';btn.disabled=true;btn.textContent='...';
+  // Add loading
+  var loadId='load'+Date.now();
+  msgs.innerHTML+='<div id="'+loadId+'" style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:10px"><div style="font-size:13px;color:var(--accent);font-weight:600;margin-bottom:6px">Bijaksana AI</div><div class="skel skel-line w80"></div><div class="skel skel-line w60"></div></div>';
+  msgs.scrollTop=msgs.scrollHeight;
+  try{
+    var r=await fetch('/api/tanya',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:q})});
+    var d=await r.json();
+    var el=document.getElementById(loadId);
+    if(d.answer){
+      var quotesHtml=d.quotes&&d.quotes.length?'<div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border);font-size:12px;color:var(--dim)">Kutipan terkait:<br>'+d.quotes.map(function(q){return '<a href="/kata-bijak/'+q.slug+'" style="color:var(--accent);text-decoration:none;font-style:italic">"'+q.text.substring(0,60)+'..."</a>'}).join('<br>')+'</div>':'';
+      el.innerHTML='<div style="font-size:13px;color:var(--accent);font-weight:600;margin-bottom:6px">Bijaksana AI</div><div style="font-size:14px;color:var(--muted);line-height:1.8;white-space:pre-line">'+esc(d.answer)+'</div>'+quotesHtml;
+    }else{
+      el.innerHTML='<div style="color:var(--dim)">Maaf, saya tidak dapat menjawab saat ini.</div>';
+    }
+  }catch(err){
+    var el=document.getElementById(loadId);
+    if(el)el.innerHTML='<div style="color:#ef4444">Gagal menghubungi AI. Coba lagi.</div>';
+  }
+  btn.disabled=false;btn.textContent='Tanya';
+  msgs.scrollTop=msgs.scrollHeight;
+}
+</script>
+
+<footer class="footer"><p>&copy; 2026 bijaksana.com &middot; <a href="/privasi">Privasi</a> &middot; <a href="/ketentuan">Ketentuan</a></p></footer>`;
+  return shell({ title: 'Tanya Bijaksana — AI Kebijaksanaan', description: 'Tanyakan apa saja tentang kehidupan kepada AI Bijaksana. Dapatkan jawaban bijaksana dan mendalam.', path: '/tanya', body, activeTab: '' });
+}
+
+// ── AI Generate Page (Quotes + Stories) ───────────────────────
+
+export function aiGeneratePage() {
+  const body = `
+<div class="breadcrumb"><a href="/">Beranda</a><span>/</span><span>AI Generator</span></div>
+<h1 style="font-size:22px;font-weight:700;margin-bottom:6px">AI Generator</h1>
+<p style="color:var(--muted);font-size:14px;margin-bottom:20px">Buat kata bijak dan kisah bijaksana original dengan AI.</p>
+
+<div style="max-width:600px;margin:0 auto">
+  <!-- Quote Generator -->
+  <div style="background:var(--bg2);border:1px solid var(--border);border-radius:16px;padding:20px;margin-bottom:16px">
+    <h2 style="font-size:17px;font-weight:700;margin-bottom:8px">&#x2728; Buat Kata Bijak</h2>
+    <p style="color:var(--muted);font-size:13px;margin-bottom:12px">AI akan membuat kata bijak original berdasarkan tema.</p>
+    <div style="display:flex;gap:8px;margin-bottom:12px">
+      <select id="quoteTheme" style="flex:1;padding:10px 12px;background:var(--bg);border:1px solid var(--border);border-radius:10px;color:var(--text);font-size:14px;font-family:var(--sans)">
+        <option value="kehidupan">Kehidupan</option>
+        <option value="cinta">Cinta</option>
+        <option value="motivasi">Motivasi</option>
+        <option value="kesabaran">Kesabaran</option>
+        <option value="keberanian">Keberanian</option>
+        <option value="persahabatan">Persahabatan</option>
+        <option value="harapan">Harapan</option>
+        <option value="kebahagiaan">Kebahagiaan</option>
+        <option value="pendidikan">Pendidikan</option>
+        <option value="mimpi">Mimpi</option>
+      </select>
+      <button onclick="generateQuote()" id="genQuoteBtn" style="padding:10px 20px;border:none;border-radius:10px;background:var(--grad);color:white;font-size:14px;font-weight:600;cursor:pointer;font-family:var(--sans);min-height:44px">Buat</button>
+    </div>
+    <div id="genQuoteResult" style="min-height:60px">
+      <div style="color:var(--dim);font-size:13px;text-align:center;padding:16px">Klik "Buat" untuk menghasilkan kata bijak baru</div>
+    </div>
+  </div>
+
+  <!-- Story Generator -->
+  <div style="background:var(--bg2);border:1px solid var(--border);border-radius:16px;padding:20px;margin-bottom:16px">
+    <h2 style="font-size:17px;font-weight:700;margin-bottom:8px">&#x1F4D6; Buat Kisah Bijaksana</h2>
+    <p style="color:var(--muted);font-size:13px;margin-bottom:12px">AI akan membuat kisah bijaksana dalam berbagai gaya tradisi.</p>
+    <div style="display:flex;gap:8px;margin-bottom:8px">
+      <select id="storyTheme" style="flex:1;padding:10px 12px;background:var(--bg);border:1px solid var(--border);border-radius:10px;color:var(--text);font-size:14px;font-family:var(--sans)">
+        <option value="kebijaksanaan">Kebijaksanaan</option>
+        <option value="kerendahan hati">Kerendahan Hati</option>
+        <option value="keserakahan">Keserakahan</option>
+        <option value="persahabatan">Persahabatan</option>
+        <option value="kejujuran">Kejujuran</option>
+        <option value="kesabaran">Kesabaran</option>
+        <option value="cinta kasih">Cinta Kasih</option>
+      </select>
+      <select id="storyStyle" style="width:120px;padding:10px 12px;background:var(--bg);border:1px solid var(--border);border-radius:10px;color:var(--text);font-size:14px;font-family:var(--sans)">
+        <option value="sufi">Sufi</option>
+        <option value="zen">Zen</option>
+        <option value="aesop">Fabel</option>
+      </select>
+    </div>
+    <button onclick="generateStory()" id="genStoryBtn" style="width:100%;padding:12px;border:none;border-radius:10px;background:var(--grad);color:white;font-size:14px;font-weight:600;cursor:pointer;font-family:var(--sans);min-height:44px;margin-bottom:12px">Buat Kisah</button>
+    <div id="genStoryResult" style="min-height:60px">
+      <div style="color:var(--dim);font-size:13px;text-align:center;padding:16px">Klik "Buat Kisah" untuk menghasilkan cerita baru</div>
+    </div>
+  </div>
+</div>
+
+<script>
+async function generateQuote(){
+  var btn=document.getElementById('genQuoteBtn'),res=document.getElementById('genQuoteResult');
+  var theme=document.getElementById('quoteTheme').value;
+  btn.disabled=true;btn.textContent='Membuat...';
+  res.innerHTML='<div class="skel skel-line w80"></div><div class="skel skel-line w60"></div>';
+  try{
+    var r=await fetch('/api/generate-quote',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({theme:theme})});
+    var d=await r.json();
+    if(d.quote){
+      res.innerHTML='<div style="font-family:Georgia,serif;font-size:18px;font-style:italic;line-height:1.7;color:var(--text);padding:12px 0">"'+esc(d.quote)+'"</div><div style="display:flex;gap:8px;margin-top:8px"><button onclick="shareQuote(\\''+d.quote.replace(/'/g,"\\\\'")+'\\',' +'\\''+'AI Bijaksana\\''+')" class="qcard-btn">Salin</button><a href="/gambar?q='+encodeURIComponent(d.quote)+'&a=AI+Bijaksana" class="qcard-btn" style="text-decoration:none">Buat Gambar</a><button onclick="generateQuote()" class="qcard-btn">Buat Lagi</button></div>';
+    }else{
+      res.innerHTML='<div style="color:#ef4444">Gagal membuat. Coba lagi.</div>';
+    }
+  }catch(e){res.innerHTML='<div style="color:#ef4444">AI tidak tersedia.</div>'}
+  btn.disabled=false;btn.textContent='Buat';
+}
+
+async function generateStory(){
+  var btn=document.getElementById('genStoryBtn'),res=document.getElementById('genStoryResult');
+  var theme=document.getElementById('storyTheme').value;
+  var style=document.getElementById('storyStyle').value;
+  btn.disabled=true;btn.textContent='Membuat kisah...';
+  res.innerHTML='<div class="skel skel-line w80"></div><div class="skel skel-line w80"></div><div class="skel skel-line w60"></div><div class="skel skel-line w80"></div>';
+  try{
+    var r=await fetch('/api/generate-story',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({theme:theme,style:style})});
+    var d=await r.json();
+    if(d.story){
+      res.innerHTML='<div style="font-size:16px;font-weight:700;margin-bottom:8px">'+esc(d.title)+'</div><div style="font-size:14px;color:var(--text);line-height:1.8;white-space:pre-line;margin-bottom:12px">'+esc(d.story)+'</div>'+(d.moral?'<div style="padding:10px 14px;background:rgba(245,158,11,.08);border-radius:10px;font-size:13px;color:var(--accent);font-style:italic"><strong>Pelajaran:</strong> '+esc(d.moral)+'</div>':'')+'<button onclick="generateStory()" class="qcard-btn" style="margin-top:10px;width:100%">Buat Kisah Lagi</button>';
+    }else{
+      res.innerHTML='<div style="color:#ef4444">Gagal membuat. Coba lagi.</div>';
+    }
+  }catch(e){res.innerHTML='<div style="color:#ef4444">AI tidak tersedia.</div>'}
+  btn.disabled=false;btn.textContent='Buat Kisah';
+}
+</script>
+
+<footer class="footer"><p>&copy; 2026 bijaksana.com &middot; <a href="/privasi">Privasi</a> &middot; <a href="/ketentuan">Ketentuan</a></p></footer>`;
+  return shell({ title: 'AI Generator — Buat Kata Bijak & Kisah', description: 'Buat kata bijak dan kisah bijaksana original dengan AI. Gratis dan instan.', path: '/ai', body, activeTab: '' });
 }
 
 // ── Legal Pages ───────────────────────────────────────────────

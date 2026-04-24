@@ -9,7 +9,7 @@ import {
   storiesListPage, singleStoryPage,
   puisiListPage, singlePuisiPage, pantunListPage,
   tesaurusPage, slangPage, wordlePage, quoteOfDayPage, idiomPage, ucapanPage,
-  privacyPage, termsPage, bornTodayPage, quoteImagePage,
+  privacyPage, termsPage, bornTodayPage, quoteImagePage, tanyaPage, aiGeneratePage,
   quoteCard, paginationHtml,
   ROBOTS_TXT, LLMS_TXT, MANIFEST
 } from './html.js';
@@ -412,6 +412,71 @@ export default {
       }
 
       if (path === '/health') return json({ status: 'ok', runtime: 'cloudflare-worker', quotes: 'D1' });
+
+      // ── AI API Routes (POST, rate-limited) ─────────────────
+      if ((path === '/api/tanya' || path === '/api/generate-quote' || path === '/api/generate-story') && method === 'POST') {
+        // Rate limit: 10 AI calls per IP per minute
+        const ip = request.headers.get('cf-connecting-ip') || 'unknown';
+        const ipHash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(ip)))).map(b => b.toString(16).padStart(2,'0')).join('').substring(0, 12);
+        const rateKey = `rate:ai:${ipHash}`;
+        try {
+          const rateData = await env.BIJAKSANA_KV.get(rateKey, { type: 'json' });
+          const now = Date.now();
+          if (rateData && now - rateData.t < 60000 && rateData.c >= 10) {
+            return json({ error: 'Terlalu banyak permintaan. Coba lagi dalam 1 menit.' }, 429);
+          }
+          const newRate = { t: rateData && now - rateData.t < 60000 ? rateData.t : now, c: (rateData && now - rateData.t < 60000 ? rateData.c : 0) + 1 };
+          await env.BIJAKSANA_KV.put(rateKey, JSON.stringify(newRate), { expirationTtl: 120 });
+        } catch {}
+      }
+
+      if (path === '/api/tanya' && method === 'POST') {
+        try {
+          const body = await request.json();
+          const question = (body.question || '').substring(0, 500);
+          if (!question) return json({ error: 'question required' }, 400);
+          const relevantQuotes = await searchQuotes(db, question.split(' ').slice(0, 3).join(' '), 3);
+          const context = relevantQuotes.map(q => `"${(q.text_id || q.text).substring(0, 100)}" — ${q.author_name}`).join('\n');
+          const result = await env.AI.run('@cf/meta/llama-3.3-70b-instruct-fp8-fast', {
+            messages: [
+              { role: 'system', content: `Kamu adalah Bijaksana, asisten kebijaksanaan Indonesia. Jawab dengan bijaksana dan mendalam dalam Bahasa Indonesia. Kutipan terkait:\n${context}` },
+              { role: 'user', content: question }
+            ],
+            max_tokens: 500, temperature: 0.7,
+          });
+          return json({ answer: result.response || 'Maaf, saya tidak dapat menjawab.', quotes: relevantQuotes.map(q => ({ text: (q.text_id||q.text).substring(0,80), author: q.author_name, slug: q.slug })) });
+        } catch (e) { return json({ error: 'AI unavailable: ' + e.message }, 500); }
+      }
+
+      if (path === '/api/generate-quote' && method === 'POST') {
+        try {
+          const body = await request.json();
+          const theme = (body.theme || 'kehidupan').substring(0, 50);
+          const result = await env.AI.run('@cf/meta/llama-3.3-70b-instruct-fp8-fast', {
+            messages: [{ role: 'user', content: `Buatkan SATU kata-kata bijak ORIGINAL dalam Bahasa Indonesia tentang "${theme}". Indah, puitis, mendalam. Hanya kutipannya, tanpa tanda kutip, tanpa penjelasan.` }],
+            max_tokens: 150, temperature: 0.9,
+          });
+          return json({ quote: (result.response || '').replace(/^[""\u201C\u201D]|[""\u201C\u201D]$/g, '').trim(), theme });
+        } catch (e) { return json({ error: 'AI unavailable: ' + e.message }, 500); }
+      }
+
+      if (path === '/api/generate-story' && method === 'POST') {
+        try {
+          const body = await request.json();
+          const theme = (body.theme || 'kebijaksanaan').substring(0, 50);
+          const style = (body.style || 'sufi').substring(0, 20);
+          const guides = { sufi: 'Gaya Sufi — singkat, misterius, twist di akhir.', zen: 'Gaya Zen — sangat singkat, paradoks.', aesop: 'Gaya fabel — hewan sebagai karakter, moral di akhir.' };
+          const result = await env.AI.run('@cf/meta/llama-3.3-70b-instruct-fp8-fast', {
+            messages: [{ role: 'user', content: `Buatkan kisah bijaksana ORIGINAL Bahasa Indonesia tentang "${theme}". ${guides[style]||guides.sufi} 100-150 kata. Format:\nJUDUL: [judul]\nKISAH: [cerita]\nPELAJARAN: [moral 1 kalimat]` }],
+            max_tokens: 400, temperature: 0.8,
+          });
+          const text = result.response || '';
+          const t = text.match(/JUDUL:\s*(.+?)(?:\n|KISAH:)/s);
+          const s = text.match(/KISAH:\s*(.+?)(?:\n|PELAJARAN:)/s);
+          const m = text.match(/PELAJARAN:\s*(.+)/s);
+          return json({ title: t?t[1].trim():'Kisah Bijaksana', story: s?s[1].trim():text.trim(), moral: m?m[1].trim():'', style, theme });
+        } catch (e) { return json({ error: 'AI unavailable: ' + e.message }, 500); }
+      }
 
       // ── HTML Pages ──────────────────────────────────────────
 
@@ -841,6 +906,14 @@ ${paginationHtml({ page, totalPages, total }, '/populer')}
         } catch (e) {
           return json({ error: 'Image generation failed: ' + e.message }, 500);
         }
+      }
+
+      // ── AI Pages ─────────────────────────────────────────
+      if (path === '/tanya' || path === '/tanya/') {
+        return html(tanyaPage());
+      }
+      if (path === '/ai' || path === '/ai/') {
+        return html(aiGeneratePage());
       }
 
       // ── Legal Pages ──────────────────────────────────────
