@@ -58,5 +58,9 @@ id = "c8a2d4a53eec4bf9ac03d8e9793dd885"
 [triggers]
 crons = ["0 22 * * *", "0 6 * * *"]
 
+[[r2_buckets]]
+binding = "R2_MEDIA"
+bucket_name = "bijaksana-media"
+
 [vars]
 RESEND_API_KEY = "re_aFdDApEm_4qe1ToMDcqkbmu9dSsXkVXXW"

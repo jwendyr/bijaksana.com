@@ -421,6 +421,18 @@ self.addEventListener('fetch',e=>{if(e.request.method!=='GET')return;
 
       if (path === '/health') return json({ status: 'ok', runtime: 'cloudflare-worker', quotes: 'D1' });
 
+      // Serve R2 media files (wallpapers, TTS audio)
+      if (path.startsWith('/media/') && method === 'GET') {
+        const r2Key = path.replace('/media/', '');
+        const object = await env.R2_MEDIA.get(r2Key);
+        if (!object) return new Response('Not found', { status: 404 });
+        const headers = { 'Cache-Control': 'public, max-age=31536000' };
+        if (r2Key.endsWith('.wav')) headers['Content-Type'] = 'audio/wav';
+        else if (r2Key.endsWith('.jpg')) headers['Content-Type'] = 'image/jpeg';
+        else if (r2Key.endsWith('.png')) headers['Content-Type'] = 'image/png';
+        return new Response(object.body, { headers });
+      }
+
       // ── AI API Routes (POST, rate-limited) ─────────────────
       if ((path === '/api/tanya' || path === '/api/generate-quote' || path === '/api/generate-story' || path === '/api/wallpaper' || path === '/api/tts') && method === 'POST') {
         // Rate limit: 10 AI calls per IP per minute
@@ -507,12 +519,12 @@ self.addEventListener('fetch',e=>{if(e.request.method!=='GET')return;
             'square': { w: 768, h: 768 },
           };
 
-          // Check KV cache (by quote hash)
-          const cacheKey = `wall:${(quote||style).substring(0,50).replace(/[^a-zA-Z0-9]/g,'_')}:${size}`;
-          const cached = await env.BIJAKSANA_KV.get(cacheKey, { type: 'arrayBuffer' });
-          if (cached && cached.byteLength > 1000) {
-            return new Response(cached, {
-              headers: { 'Content-Type': 'image/jpeg', 'Content-Disposition': `attachment; filename="bijaksana-wallpaper.jpg"`, 'Cache-Control': 'public, max-age=86400' },
+          // Check R2 cache (permanent)
+          const r2Key = `wallpaper/${(quote||style).substring(0,50).replace(/[^a-zA-Z0-9]/g,'_')}_${size}.jpg`;
+          const cached = await env.R2_MEDIA.get(r2Key);
+          if (cached) {
+            return new Response(cached.body, {
+              headers: { 'Content-Type': 'image/jpeg', 'Content-Disposition': `attachment; filename="bijaksana-wallpaper.jpg"`, 'Cache-Control': 'public, max-age=31536000' },
             });
           }
 
@@ -534,8 +546,8 @@ self.addEventListener('fetch',e=>{if(e.request.method!=='GET')return;
             binary = new Uint8Array(imageData);
           }
 
-          // Cache in KV (7 days)
-          try { await env.BIJAKSANA_KV.put(cacheKey, binary.buffer, { expirationTtl: 604800 }); } catch {}
+          // Store permanently in R2
+          try { await env.R2_MEDIA.put(r2Key, binary, { httpMetadata: { contentType: 'image/jpeg' } }); } catch {}
 
           return new Response(binary, {
             headers: { 'Content-Type': 'image/jpeg', 'Content-Disposition': `attachment; filename="bijaksana-wallpaper.jpg"`, 'Cache-Control': 'public, max-age=86400' },
@@ -545,7 +557,7 @@ self.addEventListener('fetch',e=>{if(e.request.method!=='GET')return;
         }
       }
 
-      // ── TTS (Text-to-Speech, gender-matched, lazy cached) ─
+      // ── TTS (Text-to-Speech, gender-matched, R2 permanent) ─
       if (path === '/api/tts' && method === 'POST') {
         try {
           const body = await request.json();
@@ -553,39 +565,34 @@ self.addEventListener('fetch',e=>{if(e.request.method!=='GET')return;
           const gender = body.gender || 'male';
           if (!text) return json({ error: 'text required' }, 400);
 
-          // Check KV cache first (include gender in key)
-          const cacheKey = `tts:${gender[0]}:${text.substring(0, 80).replace(/[^a-zA-Z0-9]/g, '_')}`;
-          const cached = await env.BIJAKSANA_KV.get(cacheKey, { type: 'arrayBuffer' });
-          if (cached && cached.byteLength > 100) {
-            return new Response(cached, {
-              headers: { 'Content-Type': 'audio/wav', 'Cache-Control': 'public, max-age=604800', 'Access-Control-Allow-Origin': '*' },
+          const r2Key = `tts/${gender[0]}/${text.substring(0, 80).replace(/[^a-zA-Z0-9]/g, '_')}.wav`;
+
+          // Check R2 first (permanent)
+          const cached = await env.R2_MEDIA.get(r2Key);
+          if (cached) {
+            return new Response(cached.body, {
+              headers: { 'Content-Type': 'audio/wav', 'Cache-Control': 'public, max-age=31536000', 'Access-Control-Allow-Origin': '*' },
             });
           }
 
-          const result = await env.AI.run('@cf/myshell-ai/melotts', {
-            prompt: text,
-            language: 'en',
-          });
+          const result = await env.AI.run('@cf/myshell-ai/melotts', { prompt: text, language: 'en' });
 
           let audioData;
           if (result instanceof ArrayBuffer || result instanceof Uint8Array) {
-            audioData = result;
+            audioData = new Uint8Array(result);
           } else if (result && result.audio) {
-            const binaryStr = atob(result.audio);
-            const bytes = new Uint8Array(binaryStr.length);
-            for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
-            audioData = bytes.buffer;
+            audioData = Uint8Array.from(atob(result.audio), c => c.charCodeAt(0));
           } else {
-            audioData = result;
+            audioData = new Uint8Array(result);
           }
 
-          // Cache in KV (expires in 30 days)
-          if (audioData && (audioData.byteLength || audioData.length) > 100) {
-            try { await env.BIJAKSANA_KV.put(cacheKey, audioData, { expirationTtl: 2592000 }); } catch {}
+          // Store permanently in R2
+          if (audioData.byteLength > 100) {
+            await env.R2_MEDIA.put(r2Key, audioData, { httpMetadata: { contentType: 'audio/wav' } });
           }
 
           return new Response(audioData, {
-            headers: { 'Content-Type': 'audio/wav', 'Cache-Control': 'public, max-age=604800', 'Access-Control-Allow-Origin': '*' },
+            headers: { 'Content-Type': 'audio/wav', 'Cache-Control': 'public, max-age=31536000', 'Access-Control-Allow-Origin': '*' },
           });
         } catch (e) {
           return json({ error: 'TTS failed: ' + e.message }, 500);
