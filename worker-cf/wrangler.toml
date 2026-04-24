@@ -19,6 +19,16 @@ pattern = "bijaksana.com"
 custom_domain = false
 zone_name = "bijaksana.com"
 
+[[routes]]
+pattern = "www.bijaksana.com/*"
+custom_domain = false
+zone_name = "bijaksana.com"
+
+[[routes]]
+pattern = "www.bijaksana.com"
+custom_domain = false
+zone_name = "bijaksana.com"
+
 # Also handle bijaksana.org (redirect to .com)
 [[routes]]
 pattern = "bijaksana.org/*"

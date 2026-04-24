@@ -46,7 +46,7 @@ function text(content, ctype = 'text/plain', cacheTime = 86400) {
 // ── D1 Queries ─────────────────────────────────────────────────
 
 const Q_QUOTES_WITH_JOIN = `
-  SELECT q.*, a.name AS author_name, a.slug AS author_slug, a.nationality,
+  SELECT q.*, a.name AS author_name, a.slug AS author_slug, a.nationality, a.photo_url,
          c.name AS category_name, c.slug AS category_slug, c.icon AS category_icon
   FROM quotes q
   JOIN authors a ON q.author_id = a.id
@@ -295,8 +295,24 @@ export default {
           case '/sitemap-pages.xml':
             return text(sitemapPages(), 'application/xml', 3600);
           case '/sitemap-quotes.xml': {
-            const quotes = await db.prepare('SELECT slug FROM quotes LIMIT 50000').all().then(r => r.results);
+            const quotes = await db.prepare('SELECT slug FROM quotes LIMIT 49999').all().then(r => r.results);
             return text(sitemapXml(quotes, 'kata-bijak', '0.5'), 'application/xml', 86400);
+          }
+          case '/sitemap-quotes-2.xml': {
+            const quotes = await db.prepare('SELECT slug FROM quotes LIMIT 49999 OFFSET 50000').all().then(r => r.results);
+            return text(sitemapXml(quotes, 'kata-bijak', '0.5'), 'application/xml', 86400);
+          }
+          case '/sitemap-quotes-3.xml': {
+            const quotes = await db.prepare('SELECT slug FROM quotes LIMIT 49999 OFFSET 100000').all().then(r => r.results);
+            return text(sitemapXml(quotes, 'kata-bijak', '0.5'), 'application/xml', 86400);
+          }
+          case '/sitemap-kbbi-2.xml': {
+            const kbbi = await db.prepare('SELECT slug FROM kbbi LIMIT 49999 OFFSET 50000').all().then(r => r.results);
+            return text(sitemapXml(kbbi, 'arti-kata', '0.4'), 'application/xml', 86400);
+          }
+          case '/sitemap-kbbi-3.xml': {
+            const kbbi = await db.prepare('SELECT slug FROM kbbi LIMIT 49999 OFFSET 100000').all().then(r => r.results);
+            return text(sitemapXml(kbbi, 'arti-kata', '0.4'), 'application/xml', 86400);
           }
           case '/sitemap-authors.xml': {
             const [authors, categories] = await Promise.all([
@@ -493,14 +509,17 @@ export default {
           enrichQuoteWithAI(env, quote).catch(() => {});
         }
 
-        const author = { name: quote.author_name, slug: quote.author_slug, nationality: quote.nationality, quote_count: 0, bio: '' };
+        const [author, related] = await Promise.all([
+          getAuthorBySlug(db, quote.author_slug),
+          getRelatedQuotes(db, quote.category_id, quote.id, 5),
+        ]);
+        const authorData = author || { name: quote.author_name, slug: quote.author_slug, nationality: quote.nationality, quote_count: 0, bio: '', photo_url: quote.photo_url };
         const category = { name: quote.category_name, slug: quote.category_slug, icon: quote.category_icon };
-        const related = await getRelatedQuotes(db, quote.category_id, quote.id, 5);
 
         // Update view count (fire-and-forget)
         env.DB.prepare('UPDATE quotes SET views = views + 1 WHERE id = ?').bind(quote.id).run();
 
-        return html(singleQuotePage(quote, author, category, related));
+        return html(singleQuotePage(quote, authorData, category, related));
       }
 
       // Random quote page
@@ -740,7 +759,7 @@ ${paginationHtml({ page, totalPages, total }, '/populer')}
 
       // ── Wordle (Tebak Kata) ────────────────────────────────
       if (path === '/wordle' || path === '/tebak-kata') {
-        const wordRow = await db.prepare('SELECT word FROM wordle_words ORDER BY RANDOM() LIMIT 1').first();
+        const wordRow = await db.prepare('SELECT word FROM puzzle_answers ORDER BY RANDOM() LIMIT 1').first();
         const answer = wordRow?.word || 'bijak';
         return html(wordlePage(answer));
       }

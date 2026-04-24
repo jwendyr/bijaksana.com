@@ -255,14 +255,24 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);
   display:flex;align-items:center;gap:8px}
 .section-title .icon{font-size:16px}
 
-/* Horizontal scroll strip */
+/* Horizontal scroll strip with arrows */
+.hscroll-wrap{position:relative}
 .hscroll{display:flex;gap:10px;overflow-x:auto;scroll-snap-type:x mandatory;
   -webkit-overflow-scrolling:touch;padding:2px 0 12px;
-  scrollbar-width:none;-ms-overflow-style:none}
+  scrollbar-width:none;-ms-overflow-style:none;scroll-behavior:smooth}
 .hscroll::-webkit-scrollbar{display:none}
+.hscroll-arrow{display:none;position:absolute;top:50%;transform:translateY(-50%);
+  width:36px;height:36px;border-radius:50%;background:rgba(17,17,19,.9);border:1px solid var(--border);
+  color:var(--muted);font-size:16px;cursor:pointer;z-index:5;
+  align-items:center;justify-content:center;backdrop-filter:blur(4px)}
+.hscroll-arrow:hover{color:var(--accent);border-color:var(--accent)}
+.hscroll-arrow.left{left:-4px}
+.hscroll-arrow.right{right:-4px}
 /* On desktop: wrap A-Z chips instead of scroll */
 @media(min-width:768px){
   .hscroll.wrap-desktop{flex-wrap:wrap;overflow-x:visible;scroll-snap-type:none}
+  .hscroll-arrow{display:flex}
+  .hscroll.wrap-desktop+.hscroll-arrow,.hscroll.wrap-desktop~.hscroll-arrow{display:none}
 }
 
 /* Category chips */
@@ -291,6 +301,14 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);
 .qcard-text{font-family:var(--serif);font-size:18px;font-style:italic;
   line-height:1.65;color:var(--text);margin-bottom:14px}
 .qcard-text a{color:inherit;text-decoration:none}
+.qcard-header{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.qcard-avatar{width:36px;height:36px;border-radius:50%;object-fit:cover;flex-shrink:0;border:2px solid var(--border)}
+.qcard-avatar-letter{width:36px;height:36px;border-radius:50%;background:var(--bg3);
+  display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;
+  color:var(--accent);flex-shrink:0;border:2px solid var(--border)}
+.qcard-author-name{font-size:14px;font-weight:600;line-height:1.2}
+.qcard-author-name a{color:var(--text);text-decoration:none}
+.qcard-cat-inline{font-size:11px;color:var(--accent);text-decoration:none}
 .qcard-author{font-size:13px;color:var(--accent);font-weight:500;
   display:flex;align-items:center;gap:6px}
 .qcard-author::before{content:'';width:16px;height:1.5px;background:var(--grad);display:inline-block}
@@ -594,6 +612,39 @@ function toggleDark(){
 }
 (function(){var t=localStorage.getItem('bijak-theme');if(t==='light')toggleDark()})();
 
+// Kindle-style word popup dictionary
+var dictPopup;
+function initDictPopup(){
+  dictPopup=document.createElement('div');
+  dictPopup.id='dictPopup';
+  dictPopup.style.cssText='display:none;position:fixed;z-index:300;background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:14px 16px;max-width:320px;width:90%;box-shadow:0 8px 30px rgba(0,0,0,.5);font-size:13px;line-height:1.6;color:var(--muted)';
+  dictPopup.innerHTML='<div id="dictWord" style="font-size:16px;font-weight:700;color:var(--text);margin-bottom:6px"></div><div id="dictDef"></div><a id="dictLink" href="#" style="display:block;margin-top:8px;color:var(--accent);font-size:12px;text-decoration:none">Lihat selengkapnya &rarr;</a><button onclick="dictPopup.style.display=\\'none\\'" style="position:absolute;top:8px;right:10px;background:none;border:none;color:var(--dim);font-size:18px;cursor:pointer">&times;</button>';
+  document.body.appendChild(dictPopup);
+}
+function lookupWord(word){
+  word=word.toLowerCase().replace(/[^a-z]/g,'');
+  if(word.length<3)return;
+  if(!dictPopup)initDictPopup();
+  document.getElementById('dictWord').textContent=word;
+  document.getElementById('dictDef').textContent='Memuat...';
+  document.getElementById('dictLink').href='/arti-kata/'+word;
+  dictPopup.style.display='block';
+  dictPopup.style.top='50%';dictPopup.style.left='50%';dictPopup.style.transform='translate(-50%,-50%)';
+  fetch('/api/kbbi?q='+word).then(r=>r.json()).then(d=>{
+    if(d.results&&d.results[0]){
+      document.getElementById('dictDef').innerHTML=d.results[0].definition;
+      document.getElementById('dictLink').href='/arti-kata/'+d.results[0].slug;
+    }else{
+      document.getElementById('dictDef').textContent='Kata tidak ditemukan di KBBI.';
+    }
+  }).catch(()=>{document.getElementById('dictDef').textContent='Gagal memuat.'});
+}
+// Double-click/long-press to lookup word
+document.addEventListener('dblclick',function(e){
+  var sel=window.getSelection().toString().trim();
+  if(sel&&sel.length>=3&&sel.length<=30&&!/\\s/.test(sel))lookupWord(sel);
+});
+
 // Desktop inline search
 let deskTimer;
 const deskInp=document.getElementById('deskSearchInput');
@@ -638,10 +689,14 @@ export function homePage(quotes, categories) {
 
 <section style="margin-bottom:20px">
   <div class="section-title"><span class="icon">&#x1F4CC;</span> Kategori</div>
-  <div class="hscroll">
-    ${categories.map(c => `<a href="/kategori/${c.slug}" class="cat-chip">
-      <span class="chip-icon">${c.icon}</span>${c.name}
-      <span class="chip-count">${c.quote_count}</span></a>`).join('')}
+  <div class="hscroll-wrap">
+    <button class="hscroll-arrow left" onclick="this.nextElementSibling.scrollBy(-200,0)">&lsaquo;</button>
+    <div class="hscroll" id="catScroll">
+      ${categories.map(c => `<a href="/kategori/${c.slug}" class="cat-chip">
+        <span class="chip-icon">${c.icon}</span>${c.name}
+        <span class="chip-count">${c.quote_count.toLocaleString ? c.quote_count.toLocaleString('id-ID') : c.quote_count}</span></a>`).join('')}
+    </div>
+    <button class="hscroll-arrow right" onclick="this.previousElementSibling.scrollBy(200,0)">&rsaquo;</button>
   </div>
 </section>
 
@@ -849,6 +904,7 @@ export function singleQuotePage(quote, author, category, related) {
 <div class="qcard-actions" style="border-top:none;padding-top:0;margin-bottom:16px">
   <button class="qcard-btn" onclick="shareQuote('${escJs(quote.text_id || quote.text)}','${escJs(author.name)}')">&#x1F4CB; Salin</button>
   <button class="qcard-btn" onclick="waShare('${escJs(quote.text_id || quote.text)}','${escJs(author.name)}')">&#x1F4AC; WhatsApp</button>
+  <a href="/gambar?q=${encodeURIComponent((quote.text_id || quote.text).substring(0,150))}&a=${encodeURIComponent(author.name)}" class="qcard-btn" style="text-decoration:none">&#x1F5BC; Buat Gambar</a>
 </div>
 
 ${quote.meaning ? `<section class="single-section">
@@ -869,12 +925,13 @@ ${quote.context ? `<section class="single-section">
 <section class="single-section">
   <h2>&#x1F464; Tentang ${author.name}</h2>
   <a href="/tokoh/${author.slug}" class="author-card">
-    <div class="author-avatar">${author.name.charAt(0)}</div>
+    ${author.photo_url ? `<img src="${author.photo_url}" alt="${escHtml(author.name)}" class="author-photo" loading="lazy" width="48" height="48">` : `<div class="author-avatar">${author.name.charAt(0)}</div>`}
     <div class="author-info">
       <div class="author-name">${author.name}</div>
-      <div class="author-meta">${author.nationality || ''} &middot; ${author.quote_count} kata bijak</div>
+      <div class="author-meta">${author.occupation || author.nationality || ''}${author.birth_date ? ` &middot; ${author.birth_date.substring(0,4)}` : ''}${author.death_date ? '-'+author.death_date.substring(0,4) : ''} &middot; ${author.quote_count} kata bijak</div>
     </div>
   </a>
+  ${author.bio ? `<p style="color:var(--muted);font-size:13px;line-height:1.7;margin-top:8px">${escHtml(author.bio).substring(0, 200)}${author.bio.length > 200 ? '...' : ''}</p>` : ''}
 </section>
 
 ${related.length > 0 ? `<section class="single-section">
@@ -1324,11 +1381,11 @@ export function wordlePage(answer) {
   const W='${answer}',N=5,MX=6;let row=0,col=0,done=false;
   const board=document.getElementById('board'),kb=document.getElementById('keyboard'),msg=document.getElementById('msg');
   const grid=[];
-  for(let r=0;r<MX;r++){const tr=document.createElement('div');tr.style.cssText='display:grid;grid-template-columns:repeat(5,1fr);gap:6px';grid[r]=[];for(let c=0;c<N;c++){const td=document.createElement('div');td.style.cssText='width:100%;aspect-ratio:1;display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:700;border:2px solid var(--border);border-radius:8px;text-transform:uppercase';grid[r][c]=td;tr.appendChild(td)}board.appendChild(tr)}
+  for(let r=0;r<MX;r++){const tr=document.createElement('div');tr.style.cssText='display:grid;grid-template-columns:repeat(5,1fr);gap:4px';grid[r]=[];for(let c=0;c<N;c++){const td=document.createElement('div');td.style.cssText='width:100%;aspect-ratio:1;display:flex;align-items:center;justify-content:center;font-size:clamp(16px,5vw,24px);font-weight:700;border:2px solid var(--border);border-radius:6px;text-transform:uppercase';grid[r][c]=td;tr.appendChild(td)}board.appendChild(tr)}
   const rows=[['q','w','e','r','t','y','u','i','o','p'],['a','s','d','f','g','h','j','k','l'],['Enter','z','x','c','v','b','n','m','Del']];
   const kmap={};
-  rows.forEach(r=>{const d=document.createElement('div');d.style.cssText='display:flex;gap:4px';r.forEach(k=>{const b=document.createElement('button');b.textContent=k==='Del'?'<-':k;b.style.cssText='padding:12px '+(k.length>1?'10px':'14px')+';border:1px solid var(--border);border-radius:8px;background:var(--bg2);color:var(--text);font-size:14px;font-weight:600;cursor:pointer;font-family:var(--sans);min-height:44px;min-width:'+(k.length>1?'52px':'36px');b.onclick=()=>press(k);kmap[k]=b;d.appendChild(b)});kb.appendChild(d)});
-  function press(k){if(done)return;if(k==='Del'){if(col>0){col--;grid[row][col].textContent=''}return}if(k==='Enter'){if(col<N)return;const g=grid[row].map(c=>c.textContent.toLowerCase()).join('');const res=check(g);for(let i=0;i<N;i++){const s=res[i];grid[row][i].style.background=s==='g'?'#22c55e':s==='y'?'#f59e0b':'#333';grid[row][i].style.borderColor=grid[row][i].style.background;grid[row][i].style.color='white';const l=g[i];if(s==='g')setKey(l,'#22c55e');else if(s==='y'&&!kmap[l]?.style.background?.includes('22c55e'))setKey(l,'#f59e0b');else if(s==='x')setKey(l,'#333')}if(g===W){msg.textContent='Selamat! Kamu menang!';msg.style.color='#22c55e';done=true}else{row++;if(row>=MX){msg.textContent='Jawaban: '+W.toUpperCase();msg.style.color='#ef4444';done=true}}col=0;return}if(col>=N)return;grid[row][col].textContent=k;col++}
+  rows.forEach(r=>{const d=document.createElement('div');d.style.cssText='display:flex;gap:3px;justify-content:center;width:100%';r.forEach(k=>{const b=document.createElement('button');b.textContent=k==='Del'?'<-':k;b.style.cssText='padding:8px 0;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text);font-size:13px;font-weight:600;cursor:pointer;font-family:var(--sans);min-height:40px;flex:1;max-width:'+(k.length>1?'52px':'32px');b.onclick=()=>press(k);kmap[k]=b;d.appendChild(b)});kb.appendChild(d)});
+  function press(k){if(done)return;if(k==='Del'){if(col>0){col--;grid[row][col].textContent=''}return}if(k==='Enter'){if(col<N)return;const g=grid[row].map(c=>c.textContent.toLowerCase()).join('');const res=check(g);for(let i=0;i<N;i++){const s=res[i];grid[row][i].style.background=s==='g'?'#22c55e':s==='y'?'#f59e0b':'#333';grid[row][i].style.borderColor=grid[row][i].style.background;grid[row][i].style.color='white';const l=g[i];if(s==='g')setKey(l,'#22c55e');else if(s==='y'&&!kmap[l]?.style.background?.includes('22c55e'))setKey(l,'#f59e0b');else if(s==='x')setKey(l,'#333')}if(g===W){msg.innerHTML='Selamat! \\u{1F389} <a href="/arti-kata/'+W+'" style="color:#22c55e;text-decoration:underline">Lihat arti \\u201C'+W+'\\u201D</a>';msg.style.color='#22c55e';done=true}else{row++;if(row>=MX){msg.innerHTML='Jawaban: <a href="/arti-kata/'+W+'" style="color:#ef4444;text-decoration:underline;font-weight:700">'+W.toUpperCase()+'</a>';msg.style.color='#ef4444';done=true}}col=0;return}if(col>=N)return;grid[row][col].textContent=k;col++}
   function check(g){const r=Array(N).fill('x'),wc=[...W];for(let i=0;i<N;i++)if(g[i]===W[i]){r[i]='g';wc[i]='_'}for(let i=0;i<N;i++)if(r[i]!=='g'){const j=wc.indexOf(g[i]);if(j>=0){r[i]='y';wc[j]='_'}}return r}
   function setKey(l,c){if(kmap[l])kmap[l].style.background=c}
   document.addEventListener('keydown',e=>{if(e.key==='Backspace')press('Del');else if(e.key==='Enter')press('Enter');else if(/^[a-z]$/.test(e.key))press(e.key)});
@@ -1450,7 +1507,16 @@ export function quoteImagePage() {
 
 <script>
 function updatePreview(){
-  document.getElementById('previewText').textContent='"'+(document.getElementById('imgQuote').value||'Ketik kata bijak Anda...')+'"';
+  var text=document.getElementById('imgQuote').value||'Ketik kata bijak Anda...';
+  var el=document.getElementById('previewText');
+  el.textContent='"'+text+'"';
+  // Auto-scale font size based on text length
+  var len=text.length;
+  if(len>200) el.style.fontSize='13px';
+  else if(len>150) el.style.fontSize='14px';
+  else if(len>100) el.style.fontSize='16px';
+  else if(len>60) el.style.fontSize='18px';
+  else el.style.fontSize='20px';
   document.getElementById('previewAuthor').textContent='\\u2014 '+(document.getElementById('imgAuthor').value||'Anonim');
 }
 function setBg(bg){document.getElementById('preview').style.background=bg}
@@ -1465,12 +1531,16 @@ function downloadImage(){
   // Draw text
   var qt=document.getElementById('imgQuote').value||'Ketik kata bijak...';
   var au=document.getElementById('imgAuthor').value||'Anonim';
-  ctx.fillStyle='white';ctx.font='italic 36px Georgia,serif';ctx.textAlign='center';
+  // Auto font size based on length
+  var fontSize=qt.length>200?24:qt.length>150?28:qt.length>100?32:qt.length>60?36:40;
+  var lineH=fontSize*1.4;
+  ctx.fillStyle='white';ctx.font='italic '+fontSize+'px Georgia,serif';ctx.textAlign='center';
   // Word wrap
-  var words=qt.split(' '),line='',y=280,lines=[];
-  for(var w of words){var test=line+w+' ';if(ctx.measureText(test).width>900){lines.push(line);line=w+' '}else{line=test}}
+  var maxW=1000;var words=qt.split(' '),line='',lines=[];
+  for(var w of words){var test=line+w+' ';if(ctx.measureText(test).width>maxW){lines.push(line);line=w+' '}else{line=test}}
   lines.push(line);
-  for(var l of lines){ctx.fillText('"'+l.trim()+'"',600,y);y+=48}
+  var y=338-(lines.length*lineH/2);
+  for(var l of lines){ctx.fillText(l.trim(),600,y);y+=lineH}
   ctx.fillStyle='rgba(255,255,255,0.7)';ctx.font='18px sans-serif';ctx.fillText('\\u2014 '+au,600,y+30);
   ctx.fillStyle='rgba(255,255,255,0.3)';ctx.font='12px sans-serif';ctx.fillText('bijaksana.com',600,y+60);
   // Download
@@ -1483,6 +1553,26 @@ function shareImage(){
   if(navigator.share)navigator.share({text:'"'+qt+'" \\u2014 '+au+'\\n\\nbijaksana.com'}).catch(()=>{});
   else{copyText('"'+qt+'" \\u2014 '+au+'\\n\\nbijaksana.com')}
 }
+
+// Init: load from URL params or fetch random quote
+(function(){
+  var params=new URLSearchParams(window.location.search);
+  var q=params.get('q'), a=params.get('a');
+  if(q){
+    document.getElementById('imgQuote').value=q;
+    document.getElementById('imgAuthor').value=a||'';
+    updatePreview();
+  } else {
+    // No params = from menu, load random quote
+    fetch('/api/quote/random').then(r=>r.json()).then(d=>{
+      if(d.text){
+        document.getElementById('imgQuote').value=d.text;
+        document.getElementById('imgAuthor').value=d.author||'';
+        updatePreview();
+      }
+    }).catch(()=>{});
+  }
+})();
 </script>
 
 <footer class="footer"><p>&copy; 2026 bijaksana.com &middot; <a href="/privasi">Privasi</a> &middot; <a href="/ketentuan">Ketentuan</a></p></footer>`;
@@ -1592,19 +1682,30 @@ export function notFoundPage() {
 // ── Helpers ──────────────────────────────────────────────────
 
 function quoteCard(q, showMeaning) {
+  const authorPhoto = q.photo_url || q.author_photo || '';
+  const displayText = q.text_id || q.text;
+  const authorName = q.author_name || q.author || '';
+  const initial = authorName ? authorName.charAt(0).toUpperCase() : '?';
   return `<div class="qcard fade-up">
-  <div class="qcard-deco">&ldquo;</div>
-  <div class="qcard-text"><a href="/kata-bijak/${q.slug}">${escHtml(q.text_id || q.text)}</a></div>
-  <div class="qcard-author"><a href="/tokoh/${q.author_slug || ''}">${q.author_name || q.author || ''}</a></div>
-  <a href="/kategori/${q.category_slug || ''}" class="qcard-cat">${q.category_name || ''}</a>
+  <div class="qcard-header">
+    <a href="/tokoh/${q.author_slug || ''}">
+      ${authorPhoto ? `<img src="${authorPhoto}" alt="${escHtml(authorName)}" class="qcard-avatar" loading="lazy" width="36" height="36" onerror="this.outerHTML='<div class=qcard-avatar-letter>${initial}</div>'">` : `<div class="qcard-avatar-letter">${initial}</div>`}
+    </a>
+    <div>
+      <div class="qcard-author-name"><a href="/tokoh/${q.author_slug || ''}">${authorName}</a></div>
+      <a href="/kategori/${q.category_slug || ''}" class="qcard-cat-inline">${q.category_name || ''}</a>
+    </div>
+  </div>
+  <div class="qcard-text"><a href="/kata-bijak/${q.slug}">${escHtml(displayText)}</a></div>
   ${showMeaning && q.meaning ? `<div class="qcard-meaning">
     <div class="qcard-meaning-label">Makna</div>
     <div class="qcard-meaning-text">${escHtml(q.meaning)}</div>
   </div>` : ''}
   <div class="qcard-actions">
-    <button class="qcard-btn" onclick="voteQuote(${q.id},1,this)">&#x1F44D; ${q.likes || 0}</button>
-    <button class="qcard-btn" onclick="shareQuote('${escJs(q.text_id || q.text)}','${q.author_name || q.author || ''}')">&#x1F4CB; Salin</button>
-    <button class="qcard-btn" onclick="waShare('${escJs(q.text_id || q.text)}','${q.author_name || q.author || ''}')">&#x1F4AC; WA</button>
+    <button class="qcard-btn" onclick="voteQuote(${q.id},1,this)">&#x1F44D;${q.likes ? ' ' + q.likes : ''}</button>
+    <button class="qcard-btn" onclick="shareQuote('${escJs(displayText)}','${escJs(authorName)}')">&#x1F4CB; Salin</button>
+    <button class="qcard-btn" onclick="waShare('${escJs(displayText)}','${escJs(authorName)}')">&#x1F4AC; WA</button>
+    <a href="/gambar?q=${encodeURIComponent(displayText.substring(0,150))}&a=${encodeURIComponent(authorName)}" class="qcard-btn" style="text-decoration:none">&#x1F5BC; Gambar</a>
   </div>
 </div>`;
 }
@@ -1714,8 +1815,12 @@ export function sitemapIndex(counts) {
   const sitemaps = [
     'sitemap-pages.xml',
     'sitemap-quotes.xml',
+    'sitemap-quotes-2.xml',
+    'sitemap-quotes-3.xml',
     'sitemap-authors.xml',
     'sitemap-kbbi.xml',
+    'sitemap-kbbi-2.xml',
+    'sitemap-kbbi-3.xml',
     'sitemap-puisi.xml',
     'sitemap-stories.xml',
   ];
