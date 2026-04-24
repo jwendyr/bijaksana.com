@@ -939,7 +939,8 @@ export function singleQuotePage(quote, author, category, related) {
 <div class="qcard-actions" style="border-top:none;padding-top:0;margin-bottom:16px">
   <button class="qcard-btn" onclick="shareQuote('${escJs(quote.text_id || quote.text)}','${escJs(author.name)}')">&#x1F4CB; Salin</button>
   <button class="qcard-btn" onclick="waShare('${escJs(quote.text_id || quote.text)}','${escJs(author.name)}')">&#x1F4AC; WhatsApp</button>
-  <a href="/gambar?q=${encodeURIComponent((quote.text_id || quote.text).substring(0,150))}&a=${encodeURIComponent(author.name)}" class="qcard-btn" style="text-decoration:none">&#x1F5BC; Buat Gambar</a>
+  <a href="/gambar?q=${encodeURIComponent((quote.text_id || quote.text).substring(0,150))}&a=${encodeURIComponent(author.name)}" class="qcard-btn" style="text-decoration:none">&#x1F5BC; Gambar</a>
+  <button class="qcard-btn" onclick="fetch('/api/tts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:'${escJs((quote.text_id || quote.text).substring(0,200))}'})}).then(r=>r.blob()).then(b=>new Audio(URL.createObjectURL(b)).play()).catch(()=>showToast('TTS gagal'))">&#x1F50A;</button>
 </div>
 
 ${quote.meaning ? `<section class="single-section">
@@ -1548,10 +1549,22 @@ export function quoteImagePage() {
     </div>
   </div>
 
-  <div style="display:flex;gap:8px">
-    <button onclick="downloadImage()" style="flex:1;padding:12px;border:none;border-radius:12px;background:var(--grad);color:white;font-size:14px;font-weight:600;cursor:pointer;font-family:var(--sans);min-height:48px">Download Gambar</button>
-    <button onclick="shareImage()" style="padding:12px 20px;border:1px solid var(--border);border-radius:12px;background:transparent;color:var(--muted);font-size:14px;cursor:pointer;font-family:var(--sans);min-height:48px">Bagikan</button>
+  <div style="margin-bottom:12px">
+    <label style="font-size:12px;color:var(--dim);display:block;margin-bottom:6px">Ukuran</label>
+    <div style="display:flex;gap:6px">
+      <button onclick="setSize('phone')" class="cat-chip active" id="sizePhone" style="font-size:12px">Phone (9:16)</button>
+      <button onclick="setSize('desktop')" class="cat-chip" id="sizeDesktop" style="font-size:12px">Desktop (16:9)</button>
+      <button onclick="setSize('square')" class="cat-chip" id="sizeSquare" style="font-size:12px">Instagram (1:1)</button>
+    </div>
   </div>
+
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <button onclick="downloadImage()" style="flex:1;min-width:120px;padding:12px;border:none;border-radius:12px;background:var(--grad);color:white;font-size:14px;font-weight:600;cursor:pointer;font-family:var(--sans);min-height:48px">Download</button>
+    <button onclick="genAIWallpaper()" id="aiWallBtn" style="flex:1;min-width:120px;padding:12px;border:1px solid var(--accent);border-radius:12px;background:transparent;color:var(--accent);font-size:14px;font-weight:600;cursor:pointer;font-family:var(--sans);min-height:48px">AI Wallpaper</button>
+    <button onclick="playTTS()" id="ttsBtn" style="padding:12px 16px;border:1px solid var(--border);border-radius:12px;background:transparent;color:var(--muted);font-size:18px;cursor:pointer;min-height:48px" title="Dengarkan">&#x1F50A;</button>
+    <button onclick="shareImage()" style="padding:12px 16px;border:1px solid var(--border);border-radius:12px;background:transparent;color:var(--muted);font-size:14px;cursor:pointer;font-family:var(--sans);min-height:48px">Bagikan</button>
+  </div>
+  <div id="aiStatus" style="margin-top:8px;font-size:12px;color:var(--dim);text-align:center;min-height:16px"></div>
 </div>
 
 <script>
@@ -1601,6 +1614,57 @@ function shareImage(){
   var au=document.getElementById('imgAuthor').value;
   if(navigator.share)navigator.share({text:'"'+qt+'" \\u2014 '+au+'\\n\\nbijaksana.com'}).catch(()=>{});
   else{copyText('"'+qt+'" \\u2014 '+au+'\\n\\nbijaksana.com')}
+}
+
+// Size switching
+var currentSize='phone';
+var sizeMap={phone:{w:1080,h:1920,ar:'9/16'},desktop:{w:1920,h:1080,ar:'16/9'},square:{w:1080,h:1080,ar:'1/1'}};
+function setSize(s){
+  currentSize=s;
+  var preview=document.getElementById('preview');
+  preview.style.aspectRatio=sizeMap[s].ar;
+  document.querySelectorAll('[id^=size]').forEach(function(b){b.classList.remove('active')});
+  document.getElementById('size'+s.charAt(0).toUpperCase()+s.slice(1)).classList.add('active');
+}
+
+// AI Wallpaper — generate background image
+async function genAIWallpaper(){
+  var btn=document.getElementById('aiWallBtn'),status=document.getElementById('aiStatus');
+  var style=document.querySelector('[id^=size].active')?.textContent?.includes('Phone')?'dark-gradient':'nature';
+  // Pick style from background buttons
+  var bgs=['dark-gradient','nature','ocean','forest','stars','minimal'];
+  style=bgs[Math.floor(Math.random()*bgs.length)];
+  btn.disabled=true;btn.textContent='Generating...';
+  status.textContent='AI sedang membuat wallpaper... (10-15 detik)';
+  try{
+    var r=await fetch('/api/wallpaper',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({size:currentSize,style:style})});
+    if(!r.ok){var e=await r.json();status.textContent=e.error||'Gagal';btn.disabled=false;btn.textContent='AI Wallpaper';return}
+    var blob=await r.blob();
+    var url=URL.createObjectURL(blob);
+    document.getElementById('preview').style.backgroundImage='url('+url+')';
+    document.getElementById('preview').style.backgroundSize='cover';
+    document.getElementById('preview').style.background='url('+url+') center/cover';
+    status.textContent='Wallpaper AI siap! Klik Download.';
+    // Auto-download
+    var a=document.createElement('a');a.href=url;a.download='bijaksana-wallpaper.jpg';a.click();
+  }catch(e){status.textContent='Gagal: '+e.message}
+  btn.disabled=false;btn.textContent='AI Wallpaper';
+}
+
+// TTS — play quote audio
+async function playTTS(){
+  var btn=document.getElementById('ttsBtn');
+  var text=document.getElementById('imgQuote').value;
+  if(!text){showToast('Ketik kata bijak dulu');return}
+  btn.disabled=true;btn.textContent='...';
+  try{
+    var r=await fetch('/api/tts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:text.substring(0,200)})});
+    if(!r.ok){showToast('TTS gagal');btn.disabled=false;btn.textContent='\\u{1F50A}';return}
+    var blob=await r.blob();
+    var audio=new Audio(URL.createObjectURL(blob));
+    audio.play();
+  }catch(e){showToast('TTS error')}
+  btn.disabled=false;btn.textContent='\\u{1F50A}';
 }
 
 // Init: load from URL params or fetch random quote

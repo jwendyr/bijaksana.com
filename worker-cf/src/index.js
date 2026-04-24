@@ -414,7 +414,7 @@ export default {
       if (path === '/health') return json({ status: 'ok', runtime: 'cloudflare-worker', quotes: 'D1' });
 
       // ── AI API Routes (POST, rate-limited) ─────────────────
-      if ((path === '/api/tanya' || path === '/api/generate-quote' || path === '/api/generate-story') && method === 'POST') {
+      if ((path === '/api/tanya' || path === '/api/generate-quote' || path === '/api/generate-story' || path === '/api/wallpaper' || path === '/api/tts') && method === 'POST') {
         // Rate limit: 10 AI calls per IP per minute
         const ip = request.headers.get('cf-connecting-ip') || 'unknown';
         const ipHash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(ip)))).map(b => b.toString(16).padStart(2,'0')).join('').substring(0, 12);
@@ -458,6 +458,88 @@ export default {
           });
           return json({ quote: (result.response || '').replace(/^[""\u201C\u201D]|[""\u201C\u201D]$/g, '').trim(), theme });
         } catch (e) { return json({ error: 'AI unavailable: ' + e.message }, 500); }
+      }
+
+      // ── AI Wallpaper Generator ────────────────────────────
+      if (path === '/api/wallpaper' && method === 'POST') {
+        try {
+          const body = await request.json();
+          const quote = (body.quote || '').substring(0, 200);
+          const author = (body.author || '').substring(0, 50);
+          const size = body.size || 'phone'; // phone, desktop, square
+          const style = body.style || 'dark-gradient';
+
+          const prompts = {
+            'dark-gradient': 'beautiful dark moody gradient wallpaper, abstract soft bokeh lights, deep blue and purple tones, cinematic, 4k, no text no letters',
+            'nature': 'serene nature landscape, misty mountains at dawn, soft golden light, peaceful, 4k, no text no letters no people',
+            'ocean': 'calm ocean waves at sunset, deep blue water, golden sky reflection, peaceful mood, 4k, no text no letters',
+            'forest': 'mystical dark forest with soft light rays through trees, moody green tones, 4k, no text no letters no people',
+            'stars': 'beautiful starry night sky, milky way galaxy, dark purple blue, cosmic, 4k, no text no letters',
+            'minimal': 'minimalist abstract geometric wallpaper, dark background, subtle golden accent lines, elegant, 4k, no text',
+          };
+
+          const sizes = {
+            'phone': { w: 576, h: 1024 },
+            'desktop': { w: 1024, h: 576 },
+            'square': { w: 768, h: 768 },
+          };
+
+          const dim = sizes[size] || sizes.phone;
+          const prompt = prompts[style] || prompts['dark-gradient'];
+
+          const imgResult = await env.AI.run('@cf/black-forest-labs/flux-1-schnell', {
+            prompt,
+            num_steps: 4,
+            width: dim.w,
+            height: dim.h,
+          });
+
+          const imageData = imgResult.image || imgResult;
+          if (typeof imageData === 'string') {
+            // Base64 — decode and return
+            const binary = Uint8Array.from(atob(imageData), c => c.charCodeAt(0));
+            return new Response(binary, {
+              headers: { 'Content-Type': 'image/jpeg', 'Content-Disposition': `attachment; filename="bijaksana-wallpaper.jpg"`, 'Cache-Control': 'public, max-age=86400' },
+            });
+          }
+          return new Response(imageData, {
+            headers: { 'Content-Type': 'image/png', 'Content-Disposition': `attachment; filename="bijaksana-wallpaper.png"` },
+          });
+        } catch (e) {
+          return json({ error: 'Wallpaper generation failed: ' + e.message }, 500);
+        }
+      }
+
+      // ── TTS (Text-to-Speech) ───────────────────────────────
+      if (path === '/api/tts' && method === 'POST') {
+        try {
+          const body = await request.json();
+          const text = (body.text || '').substring(0, 300);
+          if (!text) return json({ error: 'text required' }, 400);
+
+          const result = await env.AI.run('@cf/myshell-ai/melotts', {
+            prompt: text,
+            language: 'en',
+          });
+
+          let audioData;
+          if (result instanceof ArrayBuffer || result instanceof Uint8Array) {
+            audioData = result;
+          } else if (result && result.audio) {
+            const binaryStr = atob(result.audio);
+            const bytes = new Uint8Array(binaryStr.length);
+            for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
+            audioData = bytes.buffer;
+          } else {
+            audioData = result;
+          }
+
+          return new Response(audioData, {
+            headers: { 'Content-Type': 'audio/wav', 'Cache-Control': 'public, max-age=86400', 'Access-Control-Allow-Origin': '*' },
+          });
+        } catch (e) {
+          return json({ error: 'TTS failed: ' + e.message }, 500);
+        }
       }
 
       if (path === '/api/generate-story' && method === 'POST') {
