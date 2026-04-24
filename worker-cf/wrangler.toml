@@ -1,0 +1,49 @@
+name = "bijaksana-worker"
+main = "src/index.js"
+compatibility_date = "2024-09-23"
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+html_handling = "auto-trailing-slash"
+not_found_handling = "none"
+
+# Route to bijaksana.com (primary)
+[[routes]]
+pattern = "bijaksana.com/*"
+custom_domain = false
+zone_name = "bijaksana.com"
+
+[[routes]]
+pattern = "bijaksana.com"
+custom_domain = false
+zone_name = "bijaksana.com"
+
+# Also handle bijaksana.org (redirect to .com)
+[[routes]]
+pattern = "bijaksana.org/*"
+custom_domain = false
+zone_name = "bijaksana.org"
+
+[[routes]]
+pattern = "bijaksana.org"
+custom_domain = false
+zone_name = "bijaksana.org"
+
+# D1 Database
+[[d1_databases]]
+binding = "DB"
+database_name = "bijaksana-db"
+database_id = "46086ca5-cca4-453e-8abb-87b31a17c0b7"
+
+# Workers AI
+[ai]
+binding = "AI"
+
+# KV (keep for legacy subscribers during migration)
+[[kv_namespaces]]
+binding = "BIJAKSANA_KV"
+id = "c8a2d4a53eec4bf9ac03d8e9793dd885"
+
+[vars]
+RESEND_API_KEY = "re_aFdDApEm_4qe1ToMDcqkbmu9dSsXkVXXW"

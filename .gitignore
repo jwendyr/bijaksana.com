@@ -1,0 +1,9 @@
+scraped-data/
+*.sql
+!schema.sql
+!schema-kbbi.sql
+node_modules/
+.wrangler/
+.wrangler/
+worker-cf/.wrangler/
+worker-cf/src/.wrangler/
