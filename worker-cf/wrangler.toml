@@ -64,3 +64,4 @@ bucket_name = "bijaksana-media"
 
 [vars]
 RESEND_API_KEY = "re_aFdDApEm_4qe1ToMDcqkbmu9dSsXkVXXW"
+KIE_API_KEY = "767df39706f19684432f3248088fc668"

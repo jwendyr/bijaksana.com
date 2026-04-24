@@ -452,7 +452,7 @@ self.addEventListener('fetch',e=>{if(e.request.method!=='GET')return;
       }
 
       // ── AI API Routes (POST, rate-limited) ─────────────────
-      if ((path === '/api/tanya' || path === '/api/generate-quote' || path === '/api/generate-story' || path === '/api/wallpaper' || path === '/api/tts') && method === 'POST') {
+      if ((path === '/api/tanya' || path === '/api/generate-quote' || path === '/api/generate-story' || path === '/api/wallpaper' || path === '/api/tts' || path === '/api/avatar' || path === '/api/avatar-callback' || path === '/api/social/post') && method === 'POST') {
         // Rate limit: 10 AI calls per IP per minute
         const ip = request.headers.get('cf-connecting-ip') || 'unknown';
         const ipHash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(ip)))).map(b => b.toString(16).padStart(2,'0')).join('').substring(0, 12);
@@ -633,6 +633,61 @@ self.addEventListener('fetch',e=>{if(e.request.method!=='GET')return;
           const m = text.match(/PELAJARAN:\s*(.+)/s);
           return json({ title: t?t[1].trim():'Kisah Bijaksana', story: s?s[1].trim():text.trim(), moral: m?m[1].trim():'', style, theme });
         } catch (e) { return json({ error: 'AI unavailable: ' + e.message }, 500); }
+      }
+
+      // ── AI Avatar (Kie.ai → R2) ───────────────────────
+      if (path === '/api/avatar' && method === 'POST') {
+        try {
+          const body = await request.json();
+          const imageUrl = body.imageUrl || '';
+          const audioUrl = body.audioUrl || '';
+          if (!imageUrl || !audioUrl) return json({ error: 'imageUrl and audioUrl required' }, 400);
+          const cacheKey = `avatar/${(imageUrl + audioUrl).substring(0, 80).replace(/[^a-zA-Z0-9]/g, '_')}.mp4`;
+          const cached = await env.R2_MEDIA.get(cacheKey);
+          if (cached) return json({ status: 'ready', videoUrl: `https://bijaksana.com/media/${cacheKey}` });
+          const kieRes = await fetch('https://api.kie.ai/api/v1/jobs/createTask', {
+            method: 'POST', headers: { 'Authorization': `Bearer ${env.KIE_API_KEY}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model: 'kling/ai-avatar-pro', callBackUrl: 'https://bijaksana.com/api/avatar-callback', input: { image_url: imageUrl, audio_url: audioUrl, prompt: body.prompt || 'speaking wisely' } }),
+          });
+          const kieData = await kieRes.json();
+          if (kieData.code === 200) {
+            await env.BIJAKSANA_KV.put(`avatar:${kieData.data.taskId}`, JSON.stringify({ cacheKey }), { expirationTtl: 86400 });
+            return json({ status: 'processing', taskId: kieData.data.taskId });
+          }
+          return json({ error: 'Kie.ai error', detail: kieData }, 500);
+        } catch (e) { return json({ error: e.message }, 500); }
+      }
+
+      if (path === '/api/avatar-callback' && method === 'POST') {
+        try {
+          const body = await request.json();
+          const taskId = body.taskId || body.data?.taskId;
+          const videoUrl = body.data?.output?.videoUrl || body.data?.videoUrl || body.videoUrl;
+          if (taskId && videoUrl) {
+            const mapping = await env.BIJAKSANA_KV.get(`avatar:${taskId}`, { type: 'json' });
+            if (mapping) {
+              const vRes = await fetch(videoUrl);
+              if (vRes.ok) await env.R2_MEDIA.put(mapping.cacheKey, await vRes.arrayBuffer(), { httpMetadata: { contentType: 'video/mp4' } });
+              await env.BIJAKSANA_KV.delete(`avatar:${taskId}`);
+            }
+          }
+          return json({ received: true });
+        } catch (e) { return json({ error: e.message }, 500); }
+      }
+
+      // ── Social Post (direct platform APIs) ─────────────
+      if (path === '/api/social/post' && method === 'POST') {
+        try {
+          const body = await request.json();
+          const results = {};
+          for (const p of (body.platforms || [])) {
+            if (p === 'twitter' && env.TWITTER_BEARER) {
+              const r = await fetch('https://api.twitter.com/2/tweets', { method: 'POST', headers: { 'Authorization': `Bearer ${env.TWITTER_BEARER}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ text: body.text }) });
+              results.twitter = { status: r.status };
+            } else { results[p] = { status: 'credentials_needed' }; }
+          }
+          return json({ results });
+        } catch (e) { return json({ error: e.message }, 500); }
       }
 
       // ── HTML Pages ──────────────────────────────────────────
