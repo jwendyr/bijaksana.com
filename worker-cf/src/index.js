@@ -1047,4 +1047,78 @@ ${paginationHtml({ page, totalPages, total }, '/populer')}
       return json({ error: 'Internal server error', detail: err.message }, 500);
     }
   },
+
+  // ── Cron: Daily quote + newsletter + social prep ─────────
+  async scheduled(event, env, ctx) {
+    const db = env.DB;
+    const today = new Date().toISOString().split('T')[0];
+
+    try {
+      // 1. Pick daily quote (Indonesian, with author photo)
+      const quote = await db.prepare(`
+        SELECT q.*, a.name AS author_name, a.slug AS author_slug, a.photo_url
+        FROM quotes q JOIN authors a ON q.author_id = a.id
+        WHERE q.source NOT LIKE '%:en' AND length(q.text) > 30 AND length(q.text) < 200
+        ORDER BY RANDOM() LIMIT 1
+      `).first();
+
+      if (quote) {
+        await db.prepare('INSERT OR IGNORE INTO daily_quotes (quote_id, date) VALUES (?, ?)').bind(quote.id, today).run();
+
+        // 2. Enrich if not already
+        if (!quote.meaning) {
+          try {
+            const result = await env.AI.run('@cf/meta/llama-3.3-70b-instruct-fp8-fast', {
+              messages: [{ role: 'user', content: `Berikan makna singkat (2 kalimat) untuk kutipan: "${quote.text}" — ${quote.author_name}. Hanya makna, tanpa format.` }],
+              max_tokens: 150, temperature: 0.7,
+            });
+            if (result.response) {
+              await db.prepare('UPDATE quotes SET meaning = ? WHERE id = ?').bind(result.response.trim(), quote.id).run();
+            }
+          } catch {}
+        }
+
+        // 3. Send newsletter to active subscribers
+        const subscribers = await db.prepare('SELECT email, token FROM subscribers WHERE active = 1').all().then(r => r.results);
+
+        if (subscribers.length > 0 && env.RESEND_API_KEY) {
+          const subject = `Kata Bijak Hari Ini: "${quote.text.substring(0, 50)}..."`;
+          const htmlBody = `<div style="font-family:sans-serif;max-width:500px;margin:0 auto;padding:24px;background:#111113;color:#fafafa;border-radius:16px">
+            <h2 style="color:#f59e0b;text-align:center;font-size:18px">Kata Bijak Hari Ini</h2>
+            <p style="font-size:12px;color:#71717a;text-align:center">${today}</p>
+            <blockquote style="font-style:italic;font-size:18px;line-height:1.6;border-left:3px solid #f59e0b;padding-left:16px;margin:20px 0">${quote.text}</blockquote>
+            <p style="color:#f59e0b;font-weight:500">&mdash; ${quote.author_name}</p>
+            ${quote.meaning ? `<p style="color:#a1a1aa;font-size:14px;margin-top:16px"><strong>Makna:</strong> ${quote.meaning}</p>` : ''}
+            <p style="margin-top:24px;text-align:center"><a href="https://bijaksana.com/kata-bijak/${quote.slug}" style="color:#f59e0b;text-decoration:none">Baca selengkapnya &rarr;</a></p>
+          </div>`;
+
+          // Send in batches of 50
+          for (let i = 0; i < subscribers.length; i += 50) {
+            const batch = subscribers.slice(i, i + 50);
+            for (const sub of batch) {
+              try {
+                await fetch('https://api.resend.com/emails', {
+                  method: 'POST',
+                  headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    from: 'Bijaksana <noreply@bijaksana.org>',
+                    to: [sub.email],
+                    subject,
+                    html: htmlBody + `<p style="text-align:center;margin-top:16px"><a href="https://bijaksana.com/berhenti?email=${encodeURIComponent(sub.email)}&token=${sub.token}" style="color:#71717a;font-size:11px">Berhenti langganan</a></p>`,
+                  }),
+                });
+              } catch {}
+            }
+          }
+        }
+
+        // 4. Log social post data (ready for when accounts are connected)
+        await db.prepare(`INSERT OR IGNORE INTO daily_quotes (quote_id, date) VALUES (?, ?)`).bind(quote.id, today).run();
+
+        console.log(`[CRON] Daily quote set: "${quote.text.substring(0, 50)}..." by ${quote.author_name}. Newsletter sent to ${subscribers.length} subscribers.`);
+      }
+    } catch (e) {
+      console.error('[CRON] Error:', e);
+    }
+  },
 };

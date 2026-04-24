@@ -55,5 +55,8 @@ binding = "AI"
 binding = "BIJAKSANA_KV"
 id = "c8a2d4a53eec4bf9ac03d8e9793dd885"
 
+[triggers]
+crons = ["0 22 * * *"]
+
 [vars]
 RESEND_API_KEY = "re_aFdDApEm_4qe1ToMDcqkbmu9dSsXkVXXW"
