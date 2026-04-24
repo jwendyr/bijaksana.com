@@ -9,7 +9,7 @@ import {
   storiesListPage, singleStoryPage,
   puisiListPage, singlePuisiPage, pantunListPage,
   tesaurusPage, slangPage, wordlePage, quoteOfDayPage, idiomPage, ucapanPage,
-  privacyPage, termsPage, bornTodayPage, quoteImagePage, tanyaPage, aiGeneratePage,
+  privacyPage, termsPage, bornTodayPage, quoteImagePage, tanyaPage, aiGeneratePage, artiNamaPage, artiNamaDetailPage,
   quoteCard, paginationHtml,
   ROBOTS_TXT, LLMS_TXT, MANIFEST
 } from './html.js';
@@ -289,6 +289,14 @@ export default {
           case '/manifest.json': return text(MANIFEST, 'application/manifest+json');
           case '/favicon.svg':
             return text('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">\u{1FAB7}</text></svg>', 'image/svg+xml', 604800);
+          case '/sw.js':
+            return new Response(`const C='bijaksana-v2';
+self.addEventListener('install',e=>{e.waitUntil(caches.open(C).then(c=>c.addAll(['/','favicon.svg'])));self.skipWaiting()});
+self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(ks=>Promise.all(ks.filter(k=>k!==C).map(k=>caches.delete(k)))));self.clients.claim()});
+self.addEventListener('fetch',e=>{if(e.request.method!=='GET')return;
+  e.respondWith(fetch(e.request).then(r=>{if(r.ok&&r.type==='basic'){const c=r.clone();caches.open(C).then(cache=>cache.put(e.request,c))}return r}).catch(()=>caches.match(e.request)))});`, {
+              headers: { 'Content-Type': 'application/javascript', 'Cache-Control': 'public, max-age=0', 'Service-Worker-Allowed': '/' },
+            });
 
           case '/sitemap.xml':
             return text(sitemapIndex(), 'application/xml', 3600);
@@ -510,12 +518,21 @@ export default {
         }
       }
 
-      // ── TTS (Text-to-Speech) ───────────────────────────────
+      // ── TTS (Text-to-Speech, lazy cached in KV) ───────────
       if (path === '/api/tts' && method === 'POST') {
         try {
           const body = await request.json();
           const text = (body.text || '').substring(0, 300);
           if (!text) return json({ error: 'text required' }, 400);
+
+          // Check KV cache first
+          const cacheKey = `tts:${text.substring(0, 100).replace(/[^a-zA-Z0-9]/g, '_')}`;
+          const cached = await env.BIJAKSANA_KV.get(cacheKey, { type: 'arrayBuffer' });
+          if (cached && cached.byteLength > 100) {
+            return new Response(cached, {
+              headers: { 'Content-Type': 'audio/wav', 'Cache-Control': 'public, max-age=604800', 'Access-Control-Allow-Origin': '*' },
+            });
+          }
 
           const result = await env.AI.run('@cf/myshell-ai/melotts', {
             prompt: text,
@@ -534,8 +551,13 @@ export default {
             audioData = result;
           }
 
+          // Cache in KV (expires in 30 days)
+          if (audioData && (audioData.byteLength || audioData.length) > 100) {
+            try { await env.BIJAKSANA_KV.put(cacheKey, audioData, { expirationTtl: 2592000 }); } catch {}
+          }
+
           return new Response(audioData, {
-            headers: { 'Content-Type': 'audio/wav', 'Cache-Control': 'public, max-age=86400', 'Access-Control-Allow-Origin': '*' },
+            headers: { 'Content-Type': 'audio/wav', 'Cache-Control': 'public, max-age=604800', 'Access-Control-Allow-Origin': '*' },
           });
         } catch (e) {
           return json({ error: 'TTS failed: ' + e.message }, 500);
@@ -990,6 +1012,46 @@ ${paginationHtml({ page, totalPages, total }, '/populer')}
         }
       }
 
+      // ── Arti Nama ────────────────────────────────────────
+      if (path === '/arti-nama' || path === '/arti-nama/') {
+        const q = url.searchParams.get('q') || '';
+        const letter = url.searchParams.get('huruf') || '';
+        const gender = url.searchParams.get('gender') || '';
+        const page = Math.max(1, parseInt(url.searchParams.get('hal') || '1'));
+        const perPage = 30;
+        const offset = (page - 1) * perPage;
+        let items, total;
+
+        if (q) {
+          const like = `%${q}%`;
+          [items, total] = await Promise.all([
+            db.prepare('SELECT * FROM arti_nama WHERE name LIKE ? OR meaning LIKE ? ORDER BY name LIMIT ? OFFSET ?').bind(like, like, perPage, offset).all().then(r => r.results),
+            db.prepare('SELECT COUNT(*) as c FROM arti_nama WHERE name LIKE ? OR meaning LIKE ?').bind(like, like).first().then(r => r?.c || 0),
+          ]);
+        } else if (letter) {
+          const like = `${letter}%`;
+          const genderFilter = gender ? ` AND gender = '${gender}'` : '';
+          [items, total] = await Promise.all([
+            db.prepare(`SELECT * FROM arti_nama WHERE LOWER(name) LIKE ?${genderFilter} ORDER BY name LIMIT ? OFFSET ?`).bind(like, perPage, offset).all().then(r => r.results),
+            db.prepare(`SELECT COUNT(*) as c FROM arti_nama WHERE LOWER(name) LIKE ?${genderFilter}`).bind(like).first().then(r => r?.c || 0),
+          ]);
+        } else {
+          [items, total] = await Promise.all([
+            db.prepare('SELECT * FROM arti_nama ORDER BY name LIMIT ? OFFSET ?').bind(perPage, offset).all().then(r => r.results),
+            db.prepare('SELECT COUNT(*) as c FROM arti_nama').first().then(r => r?.c || 0),
+          ]);
+        }
+        return html(artiNamaPage(items, { page, totalPages: Math.ceil(total / perPage), total, query: q, letter, gender }));
+      }
+
+      const namaMatch = path.match(/^\/arti-nama\/([a-z0-9_-]+)\/?$/);
+      if (namaMatch) {
+        const nama = await db.prepare('SELECT * FROM arti_nama WHERE slug = ? LIMIT 1').bind(namaMatch[1]).first();
+        if (!nama) return html(notFoundPage(), 404);
+        const related = await db.prepare('SELECT * FROM arti_nama WHERE culture = ? AND id != ? ORDER BY RANDOM() LIMIT 6').bind(nama.culture || '', nama.id).all().then(r => r.results);
+        return html(artiNamaDetailPage(nama, related));
+      }
+
       // ── AI Pages ─────────────────────────────────────────
       if (path === '/tanya' || path === '/tanya/') {
         return html(tanyaPage());
@@ -1048,10 +1110,89 @@ ${paginationHtml({ page, totalPages, total }, '/populer')}
     }
   },
 
-  // ── Cron: Daily quote + newsletter + social prep ─────────
+  // ── Cron: Multiple scheduled tasks ──────────────────────
   async scheduled(event, env, ctx) {
     const db = env.DB;
     const today = new Date().toISOString().split('T')[0];
+    const hour = new Date(event.scheduledTime).getUTCHours();
+
+    // 06:00 UTC — Batch translate + enrich + crawl
+    if (hour === 6) {
+      try {
+        // Translate 50 English quotes
+        const enQuotes = await db.prepare("SELECT id, text, source FROM quotes WHERE source LIKE '%:en' AND (text_id IS NULL OR length(text_id)<10) LIMIT 50").all().then(r => r.results);
+        for (const q of enQuotes) {
+          try {
+            const r = await env.AI.run('@cf/meta/llama-3.3-70b-instruct-fp8-fast', {
+              messages: [{ role: 'user', content: `Terjemahkan ke Bahasa Indonesia yang indah. Hanya terjemahan, tanpa penjelasan:\n\n"${q.text}"` }],
+              max_tokens: 200, temperature: 0.3,
+            });
+            const translated = (r.response || '').replace(/^[""\u201C\u201D]|[""\u201C\u201D]$/g, '').trim();
+            if (translated && translated.length > 10) {
+              await db.prepare('UPDATE quotes SET text_id = ? WHERE id = ?').bind(translated, q.id).run();
+            }
+          } catch {}
+        }
+        console.log(`[CRON 06] Translated ${enQuotes.length} quotes`);
+
+        // Enrich 30 quotes with meaning
+        const noMeaning = await db.prepare("SELECT q.id, q.text, q.text_id, a.name AS author_name FROM quotes q JOIN authors a ON q.author_id=a.id WHERE q.meaning IS NULL OR length(q.meaning)<10 ORDER BY q.views DESC, q.likes DESC LIMIT 30").all().then(r => r.results);
+        for (const q of noMeaning) {
+          try {
+            const text = q.text_id || q.text;
+            const r = await env.AI.run('@cf/meta/llama-3.3-70b-instruct-fp8-fast', {
+              messages: [{ role: 'user', content: `Berikan makna singkat (2-3 kalimat) untuk kutipan:\n"${text}" — ${q.author_name}\nHanya makna, tanpa format.` }],
+              max_tokens: 200, temperature: 0.7,
+            });
+            if (r.response && r.response.length > 20) {
+              await db.prepare('UPDATE quotes SET meaning = ?, word_count = ? WHERE id = ?').bind(r.response.trim(), (text + ' ' + r.response).split(/\s+/).length, q.id).run();
+            }
+          } catch {}
+        }
+        console.log(`[CRON 06] Enriched ${noMeaning.length} quotes`);
+
+        // Crawl new quotes from Wikiquote "Quote of the day"
+        try {
+          const res = await fetch('https://en.wikiquote.org/wiki/Main_Page', { headers: { 'User-Agent': 'BijaksanaBot/1.0' } });
+          if (res.ok) {
+            const html = await res.text();
+            const qotdMatch = html.match(/id="mf-qotd"[\s\S]*?<td[^>]*>([\s\S]*?)<\/td>/);
+            if (qotdMatch) {
+              const rawQuote = qotdMatch[1].replace(/<[^>]+>/g, '').trim();
+              if (rawQuote.length > 20 && rawQuote.length < 300) {
+                const slug = rawQuote.substring(0, 60).toLowerCase().replace(/[^a-z0-9\s-]/g, '').replace(/\s+/g, '-').substring(0, 80);
+                await db.prepare("INSERT OR IGNORE INTO quotes (text, author_id, category_id, slug, word_count, source) VALUES (?, 1, 1, ?, ?, 'wikiquote-qotd:en')").bind(rawQuote, slug, rawQuote.split(/\s+/).length).run();
+                console.log(`[CRON 06] New QOTD: "${rawQuote.substring(0, 50)}..."`);
+              }
+            }
+          }
+        } catch {}
+
+        // Update counts
+        await db.prepare("UPDATE categories SET quote_count = (SELECT COUNT(*) FROM quotes WHERE quotes.category_id = categories.id)").run();
+        await db.prepare("UPDATE authors SET quote_count = (SELECT COUNT(*) FROM quotes WHERE quotes.author_id = authors.id)").run();
+
+      } catch (e) { console.error('[CRON 06] Error:', e); }
+      return;
+    }
+
+    // 12:00 UTC Sunday — Sitemap ping + IndexNow
+    if (hour === 12) {
+      try {
+        await fetch('https://api.indexnow.org/IndexNow', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ host: 'bijaksana.com', key: 'bijaksana2026', urlList: [
+            'https://bijaksana.com/', 'https://bijaksana.com/hari-ini', 'https://bijaksana.com/populer',
+            'https://bijaksana.com/sitemap.xml',
+          ] }),
+        });
+        console.log('[CRON 12] IndexNow ping sent');
+      } catch {}
+      return;
+    }
+
+    // 22:00 UTC — Daily quote + newsletter (existing logic below)
 
     try {
       // 1. Pick daily quote (Indonesian, with author photo)

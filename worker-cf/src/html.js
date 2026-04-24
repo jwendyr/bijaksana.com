@@ -1692,6 +1692,61 @@ async function playTTS(){
   return shell({ title: 'Buat Gambar Kata Bijak', description: 'Buat gambar kata bijak untuk wallpaper, Instagram, atau WhatsApp. Gratis dan mudah.', path: '/gambar', body, activeTab: '' });
 }
 
+// ── Arti Nama Pages ───────────────────────────────────────────
+
+export function artiNamaPage(items, paging = {}) {
+  const q = paging.query || '';
+  const letter = paging.letter || '';
+  const gender = paging.gender || '';
+  const body = `
+<div class="breadcrumb"><a href="/">Beranda</a><span>/</span><span>Arti Nama</span></div>
+<h1 style="font-size:22px;font-weight:700;margin-bottom:6px">Arti Nama Bayi</h1>
+<p style="color:var(--muted);font-size:14px;margin-bottom:16px">${paging.total || 0} nama bayi dari berbagai budaya beserta artinya.</p>
+<form action="/arti-nama" method="get" style="margin-bottom:16px"><div class="sub-form">
+  <input type="text" name="q" placeholder="Cari nama..." value="${escHtml(q)}" style="flex:1;min-width:0;padding:12px 14px;background:var(--bg2);border:1px solid var(--border);border-radius:12px;color:var(--text);font-size:14px;font-family:var(--sans);outline:none">
+  <button type="submit" style="padding:12px 20px;border:none;border-radius:12px;background:var(--grad);color:white;font-size:14px;font-weight:600;cursor:pointer;font-family:var(--sans);min-height:48px">Cari</button>
+</div></form>
+<div class="hscroll wrap-desktop" style="margin-bottom:12px">
+  <a href="/arti-nama" class="cat-chip${!letter&&!gender?' active':''}">Semua</a>
+  <a href="/arti-nama?gender=Laki-Laki" class="cat-chip${gender==='Laki-Laki'?' active':''}">Laki-Laki</a>
+  <a href="/arti-nama?gender=Perempuan" class="cat-chip${gender==='Perempuan'?' active':''}">Perempuan</a>
+</div>
+<div class="hscroll wrap-desktop" style="margin-bottom:16px">
+  ${ALPHABET.map(l => `<a href="/arti-nama?huruf=${l}${gender?'&gender='+gender:''}" class="cat-chip${l===letter?' active':''}" style="min-width:40px;justify-content:center;font-weight:700">${l.toUpperCase()}</a>`).join('')}
+</div>
+${items.map(n => `<a href="/arti-nama/${n.slug}" style="display:flex;gap:12px;align-items:center;padding:12px 16px;background:var(--bg2);border:1px solid var(--border);border-radius:12px;margin-bottom:8px;text-decoration:none;color:var(--text)">
+  <div style="width:40px;height:40px;border-radius:50%;background:${n.gender==='Perempuan'?'rgba(236,72,153,.1)':'rgba(59,130,246,.1)'};display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">${n.gender==='Perempuan'?'&#x2640;':'&#x2642;'}</div>
+  <div style="flex:1;min-width:0">
+    <div style="font-size:15px;font-weight:600">${escHtml(n.name)}</div>
+    <div style="font-size:12px;color:var(--muted)">${escHtml(n.meaning)}</div>
+    <div style="font-size:11px;color:var(--dim);margin-top:2px">${escHtml(n.culture || '')} &middot; ${escHtml(n.gender || '')}</div>
+  </div>
+</a>`).join('')}
+${pagination(paging, q?`/arti-nama?q=${encodeURIComponent(q)}`:(letter?`/arti-nama?huruf=${letter}${gender?'&gender='+gender:''}`:'/arti-nama'))}
+<footer class="footer"><p>&copy; 2026 bijaksana.com &middot; <a href="/privasi">Privasi</a> &middot; <a href="/ketentuan">Ketentuan</a></p></footer>`;
+  return shell({ title: q?`Arti Nama "${q}"`:'Arti Nama Bayi Indonesia', description: `Cari arti nama bayi dari ${paging.total||0} nama Indonesia, Jawa, Arab, dan lainnya.`, path: '/arti-nama', body, activeTab: '' });
+}
+
+export function artiNamaDetailPage(nama, related) {
+  const body = `
+<div class="breadcrumb"><a href="/">Beranda</a><span>/</span><a href="/arti-nama">Arti Nama</a><span>/</span><span>${escHtml(nama.name)}</span></div>
+<article style="background:var(--bg2);border:1px solid var(--border);border-radius:16px;padding:24px 20px;margin-bottom:20px;text-align:center">
+  <div style="width:64px;height:64px;border-radius:50%;background:${nama.gender==='Perempuan'?'rgba(236,72,153,.15)':'rgba(59,130,246,.15)'};display:flex;align-items:center;justify-content:center;font-size:28px;margin:0 auto 12px">${nama.gender==='Perempuan'?'&#x2640;':'&#x2642;'}</div>
+  <h1 style="font-size:28px;font-weight:700;margin-bottom:4px">${escHtml(nama.name)}</h1>
+  <p style="color:var(--accent);font-size:14px;font-weight:500;margin-bottom:12px">${escHtml(nama.gender || '')} &middot; ${escHtml(nama.culture || '')}</p>
+  <div style="font-size:18px;color:var(--text);line-height:1.7;margin-bottom:8px"><strong>Arti:</strong> ${escHtml(nama.meaning)}</div>
+</article>
+${related.length>0?`<h2 style="font-size:16px;font-weight:600;margin-bottom:10px;color:var(--muted)">Nama Lainnya dari ${escHtml(nama.culture||'budaya ini')}</h2>
+<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px">${related.map(n=>`<a href="/arti-nama/${n.slug}" style="padding:10px 12px;background:var(--bg2);border:1px solid var(--border);border-radius:10px;text-decoration:none;color:var(--text)">
+  <div style="font-size:14px;font-weight:600">${escHtml(n.name)} <span style="font-size:11px;color:var(--dim)">${n.gender==='Perempuan'?'&#x2640;':'&#x2642;'}</span></div>
+  <div style="font-size:12px;color:var(--muted)">${escHtml(n.meaning)}</div>
+</a>`).join('')}</div>`:''}
+<footer class="footer"><p>&copy; 2026 bijaksana.com &middot; <a href="/privasi">Privasi</a> &middot; <a href="/ketentuan">Ketentuan</a></p></footer>`;
+  return shell({ title: `Arti Nama ${nama.name} — ${nama.meaning}`, description: `Arti nama ${nama.name}: ${nama.meaning}. Nama ${nama.gender} dari budaya ${nama.culture}.`, path: `/arti-nama/${nama.slug}`, body, activeTab: '',
+    jsonLd: { "@context":"https://schema.org", "@type":"DefinedTerm", name: nama.name, description: nama.meaning }
+  });
+}
+
 // ── AI Chat "Tanya Bijaksana" ─────────────────────────────────
 
 export function tanyaPage() {
